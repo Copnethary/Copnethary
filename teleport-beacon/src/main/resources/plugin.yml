@@ -1,0 +1,23 @@
+name: TeleportBeacon
+version: '${project.version}'
+main: cn.willgao.teleportbeacon.TeleportBeaconPlugin
+api-version: '26.3'
+description: 传送信标 - 全服共享传送点
+author: Will
+softdepend: [floodgate]
+commands:
+  beacon:
+    aliases: [tb, 传送信标]
+    description: 打开传送信标菜单
+    usage: /<command> [search <关键字>|list|get|tp <名字>|requests|fav|pin|moveup|movedown|give|lock|unlock|reload]
+    permission: teleportbeacon.use
+permissions:
+  teleportbeacon.use:
+    description: 使用传送菜单、传送、领取物品、申请改名
+    default: true
+  teleportbeacon.place:
+    description: 放置传送信标
+    default: true
+  teleportbeacon.admin:
+    description: 管理员：give / reload / 直接改名任何信标
+    default: op

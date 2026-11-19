@@ -1,0 +1,25 @@
+# 传送冷却（秒），0 = 不限制
+cooldown-seconds: 3
+# 传送点名字最大长度
+max-name-length: 24
+# 聊天输入的超时时间（秒）
+input-timeout-seconds: 60
+# 登录/重生时若背包里没有传送信标/罗盘则自动补发
+auto-give: true
+
+# ---- 传送点可见标记（Java / 基岩版通用）----
+marker:
+  # 信标上方的悬浮名牌（%name% = 传送点名字，& = 颜色码）
+  label: true
+  label-format: "&b★ 传送点：&f%name%"
+  locked-label-format: "&c[已锁定] &6传送点：&f%name%"
+  label-height: 1.25
+  # 普通传送点周围的淡青色粒子
+  particles: true
+  # 已锁定信标周围的红色粒子"屏障圈"（纯视觉，不是实体方块）
+  locked-ring: true
+  locked-ring-radius: 1.5
+  locked-ring-layers: 3
+  # 粒子刷新间隔（tick，最小 5）和可见距离（只有附近有玩家时才生成）
+  particle-interval-ticks: 10
+  particle-view-distance: 24
