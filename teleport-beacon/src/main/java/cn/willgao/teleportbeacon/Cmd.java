@@ -65,6 +65,8 @@ final class Cmd implements CommandExecutor, TabCompleter {
                 if (!plugin.isAdmin(s)) { plugin.msg(s, "§c你没有权限。"); return true; }
                 plugin.store.flush();
                 plugin.reloadConfig();
+                plugin.teleporter.reloadSettings();
+                plugin.markers.reloadSettings();
                 plugin.store.load();
                 plugin.markers.removeAll();
                 plugin.markers.syncAll();
@@ -214,9 +216,12 @@ final class Cmd implements CommandExecutor, TabCompleter {
         } else if (a.length >= 2 && isPointSub(a[0], s)) {
             String typed = String.join(" ", Arrays.copyOfRange(a, 1, a.length)).toLowerCase(Locale.ROOT);
             for (Point p : plugin.store.byId.values()) {
-                String n = p.displayName();
-                if (typed.isEmpty() || n.toLowerCase(Locale.ROOT).startsWith(typed) || n.toLowerCase(Locale.ROOT).contains(typed)) out.add(n);
+                if (typed.isEmpty() || p.lowerName().contains(typed)) {
+                    out.add(p.displayName());
+                    if (out.size() >= 100) break; // Tab 补全列表没必要太长
+                }
             }
+            out.sort(String.CASE_INSENSITIVE_ORDER);
             return out;
         } else if (a.length == 2 && a[0].equalsIgnoreCase("give") && plugin.isAdmin(s)) {
             for (Player p : Bukkit.getOnlinePlayers()) out.add(p.getName());

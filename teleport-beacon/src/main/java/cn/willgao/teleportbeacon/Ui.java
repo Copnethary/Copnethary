@@ -39,6 +39,7 @@ final class Ui implements Listener {
 
     Ui(TeleportBeaconPlugin plugin) {
         this.plugin = plugin;
+        buildStaticButtons();
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
 
@@ -69,23 +70,11 @@ final class Ui implements Listener {
         return Component.text(s, c).decoration(TextDecoration.ITALIC, false);
     }
 
-    /** 清理已确认不存在的信标（只检查已加载区块，零开销）。 */
-    private void cleanup() {
-        List<Point> dead = new ArrayList<>();
-        for (Point pt : plugin.store.byId.values()) {
-            World w = Bukkit.getWorld(pt.world);
-            if (w == null || !w.isChunkLoaded(pt.x >> 4, pt.z >> 4)) continue;
-            if (w.getBlockAt(pt.x, pt.y, pt.z).getType() != Material.BEACON) dead.add(pt);
-        }
-        for (Point pt : dead) {
-            plugin.getLogger().info("清理已消失的传送点: " + pt.displayName());
-            plugin.store.remove(pt);
-        }
-    }
-
     // ------------------------------------------------------------ 菜单
     void openMenu(Player p, String filter, int page, Point source) {
-        cleanup();
+        // 旧版每次打开菜单都会全表扫描所有传送点并逐个读方块（cleanup），
+        // 现在由 Markers 的定时修复顺带清理，打开菜单不再有这笔开销。
+        if (source != null && plugin.store.byId.get(source.id) != source) source = null;
         String f = (filter == null || filter.isBlank()) ? null : filter.trim();
         List<Point> all = plugin.store.sortedFor(p.getUniqueId(), f);
         if (plugin.isBedrock(p)) {
@@ -140,8 +129,9 @@ final class Ui implements Listener {
 
     private String formLabel(Player p, Point pt) {
         String tags = "";
-        if (plugin.store.isPinned(p.getUniqueId(), pt.id)) tags += "§e★ ";
-        else if (plugin.store.isFavorite(p.getUniqueId(), pt.id)) tags += "§6❤ ";
+        Store.Prefs pr = plugin.store.prefs.get(p.getUniqueId());
+        if (pr != null && pr.pinned.contains(pt.id)) tags = "§e★ ";
+        else if (pr != null && pr.favorites.contains(pt.id)) tags = "§6❤ ";
         return tags + "§l" + pt.displayName() + "§r" + (pt.locked ? " §c[已锁定]§r" : "")
                 + "\n§8" + worldLabel(pt.world) + " " + pt.coords() + " · " + pt.ownerName;
     }
@@ -212,10 +202,23 @@ final class Ui implements Listener {
     // Java 箱子界面
     static final class MenuHolder implements InventoryHolder {
         Inventory inv;
-        String filter; int page; Point source;
+        String filter; int page, pages; Point source;
         final Map<Integer, Point> slots = new HashMap<>();
         final Map<Integer, Runnable> buttons = new HashMap<>();
         @Override public Inventory getInventory() { return inv; }
+    }
+
+    // 固定按钮只创建一次（setItem 会复制，复用是安全的）
+    private ItemStack filler, searchBtn, clearBtn, getBeaconBtn, getCompassBtn, prevBtn, nextBtn;
+
+    private void buildStaticButtons() {
+        filler = button(Material.GRAY_STAINED_GLASS_PANE, " ", NamedTextColor.GRAY);
+        searchBtn = button(Material.OAK_SIGN, "搜索传送点", NamedTextColor.GREEN, "按名字 / 放置者 / 世界搜索", "点击后在聊天栏输入关键字");
+        clearBtn = button(Material.BARRIER, "清除搜索", NamedTextColor.RED);
+        getBeaconBtn = button(Material.BEACON, "领取传送信标", NamedTextColor.AQUA, "数量不限，没有就补发");
+        getCompassBtn = button(Material.COMPASS, "领取传送罗盘", NamedTextColor.GOLD, "数量不限，没有就补发");
+        prevBtn = button(Material.ARROW, "« 上一页", NamedTextColor.YELLOW);
+        nextBtn = button(Material.ARROW, "下一页 »", NamedTextColor.YELLOW);
     }
 
     private ItemStack button(Material m, String name, NamedTextColor c, String... lore) {
@@ -231,18 +234,42 @@ final class Ui implements Listener {
         int pages = Math.max(1, (all.size() + PAGE_CHEST - 1) / PAGE_CHEST);
         int pg = Math.min(Math.max(0, page), pages - 1);
         MenuHolder h = new MenuHolder();
-        h.filter = f; h.page = pg; h.source = source;
+        h.filter = f; h.page = pg; h.source = source; h.pages = pages;
         Inventory inv = Bukkit.createInventory(h, 54, Component.text("传送信标 " + (pg + 1) + "/" + pages
                 + (f != null ? " · 搜索:" + f : "")));
         h.inv = inv;
+        fillChest(p, h, all);
+        p.openInventory(inv);
+    }
+
+    /** 原地刷新已打开的箱子菜单（收藏/置顶/排序后用），不重新创建、不重新打开界面。 */
+    private void refreshChest(Player p, MenuHolder h) {
+        if (h.source != null && plugin.store.byId.get(h.source.id) != h.source) h.source = null;
+        List<Point> all = plugin.store.sortedFor(p.getUniqueId(), h.filter);
+        int pages = Math.max(1, (all.size() + PAGE_CHEST - 1) / PAGE_CHEST);
+        if (pages != h.pages || h.page >= pages) { // 页数变了，标题需要更新，只能重开
+            openChest(p, h.filter, h.page, h.source, all);
+            return;
+        }
+        h.inv.clear();
+        h.slots.clear();
+        h.buttons.clear();
+        fillChest(p, h, all);
+    }
+
+    private void fillChest(Player p, MenuHolder h, List<Point> all) {
+        Inventory inv = h.inv;
+        String f = h.filter; int pg = h.page, pages = h.pages; Point source = h.source;
+        UUID uid = p.getUniqueId();
+        Store.Prefs prefs = plugin.store.prefs.get(uid);
         int from = pg * PAGE_CHEST, to = Math.min(all.size(), from + PAGE_CHEST);
         for (int i = from; i < to; i++) {
             Point pt = all.get(i);
             int slot = i - from;
             ItemStack it = new ItemStack(icon(pt));
             ItemMeta m = it.getItemMeta();
-            boolean pinned = plugin.store.isPinned(p.getUniqueId(), pt.id);
-            boolean fav = plugin.store.isFavorite(p.getUniqueId(), pt.id);
+            boolean pinned = prefs != null && prefs.pinned.contains(pt.id);
+            boolean fav = prefs != null && prefs.favorites.contains(pt.id);
             String title = (pinned ? "★ " : "") + (fav && !pinned ? "❤ " : "") + pt.displayName();
             m.displayName(l(title, pinned ? NamedTextColor.YELLOW : fav ? NamedTextColor.GOLD : NamedTextColor.AQUA)
                     .decoration(TextDecoration.BOLD, true));
@@ -264,12 +291,11 @@ final class Ui implements Listener {
             inv.setItem(slot, it);
             h.slots.put(slot, pt);
         }
-        ItemStack filler = button(Material.GRAY_STAINED_GLASS_PANE, " ", NamedTextColor.GRAY);
         for (int s = 45; s < 54; s++) inv.setItem(s, filler);
-        if (pg > 0) { inv.setItem(45, button(Material.ARROW, "« 上一页", NamedTextColor.YELLOW)); h.buttons.put(45, () -> openMenu(p, f, pg - 1, source)); }
-        inv.setItem(46, button(Material.OAK_SIGN, "搜索传送点", NamedTextColor.GREEN, "按名字 / 放置者 / 世界搜索", "点击后在聊天栏输入关键字"));
+        if (pg > 0) { inv.setItem(45, prevBtn); h.buttons.put(45, () -> openMenu(p, f, pg - 1, source)); }
+        inv.setItem(46, searchBtn);
         h.buttons.put(46, () -> askSearch(p, source));
-        if (f != null) { inv.setItem(47, button(Material.BARRIER, "清除搜索", NamedTextColor.RED)); h.buttons.put(47, () -> openMenu(p, null, 0, source)); }
+        if (f != null) { inv.setItem(47, clearBtn); h.buttons.put(47, () -> openMenu(p, null, 0, source)); }
         if (source != null) {
             boolean direct = canRenameDirect(p, source);
             inv.setItem(48, button(Material.NAME_TAG, direct ? "重命名本信标" : "申请重命名本信标", NamedTextColor.GOLD,
@@ -284,12 +310,11 @@ final class Ui implements Listener {
             h.buttons.put(52, () -> setLocked(p, source, !source.locked));
         }
         inv.setItem(49, button(Material.PAPER, "第 " + (pg + 1) + "/" + pages + " 页 · 共 " + all.size() + " 个", NamedTextColor.WHITE));
-        inv.setItem(50, button(Material.BEACON, "领取传送信标", NamedTextColor.AQUA, "数量不限，没有就补发"));
+        inv.setItem(50, getBeaconBtn);
         h.buttons.put(50, () -> plugin.ensureItems(p, true));
-        inv.setItem(51, button(Material.COMPASS, "领取传送罗盘", NamedTextColor.GOLD, "数量不限，没有就补发"));
+        inv.setItem(51, getCompassBtn);
         h.buttons.put(51, () -> plugin.ensureItems(p, true));
-        if (pg < pages - 1) { inv.setItem(53, button(Material.ARROW, "下一页 »", NamedTextColor.YELLOW)); h.buttons.put(53, () -> openMenu(p, f, pg + 1, source)); }
-        p.openInventory(inv);
+        if (pg < pages - 1) { inv.setItem(53, nextBtn); h.buttons.put(53, () -> openMenu(p, f, pg + 1, source)); }
     }
 
     @EventHandler
@@ -306,11 +331,11 @@ final class Ui implements Listener {
             if (click == ClickType.RIGHT) {
                 boolean now = plugin.store.toggleFavorite(p, pt);
                 plugin.msg(p, now ? "已收藏「§b" + pt.displayName() + "§f」。" : "已取消收藏「§b" + pt.displayName() + "§f」。");
-                Bukkit.getScheduler().runTask(plugin, () -> openMenu(p, h.filter, h.page, h.source));
+                Bukkit.getScheduler().runTask(plugin, () -> reopenIfStillOpen(p, h));
             } else if (click == ClickType.SHIFT_LEFT) {
                 boolean now = plugin.store.togglePin(p, pt);
                 plugin.msg(p, now ? "已置顶「§b" + pt.displayName() + "§f」。" : "已取消置顶「§b" + pt.displayName() + "§f」。");
-                Bukkit.getScheduler().runTask(plugin, () -> openMenu(p, h.filter, h.page, h.source));
+                Bukkit.getScheduler().runTask(plugin, () -> reopenIfStillOpen(p, h));
             } else if (click == ClickType.SHIFT_RIGHT || click == ClickType.DROP || click == ClickType.CONTROL_DROP) {
                 boolean up = click == ClickType.SHIFT_RIGHT;
                 if (plugin.store.move(p, pt, up)) {
@@ -318,15 +343,22 @@ final class Ui implements Listener {
                 } else {
                     plugin.msg(p, "「§b" + pt.displayName() + "§f」已经在本组的最" + (up ? "上面" : "下面") + "了。");
                 }
-                Bukkit.getScheduler().runTask(plugin, () -> openMenu(p, h.filter, h.page, h.source));
+                Bukkit.getScheduler().runTask(plugin, () -> reopenIfStillOpen(p, h));
             } else {
-                p.closeInventory();
-                plugin.teleporter.teleport(p, pt);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    p.closeInventory();
+                    plugin.teleporter.teleport(p, pt);
+                });
             }
         } else if (r != null) {
             // 先关闭再执行（执行里会重新打开界面/要求聊天输入）
             Bukkit.getScheduler().runTask(plugin, () -> { p.closeInventory(); r.run(); });
         }
+    }
+
+    private void reopenIfStillOpen(Player p, MenuHolder h) {
+        if (!p.isOnline()) return;
+        if (p.getOpenInventory().getTopInventory().getHolder() == h) refreshChest(p, h);
     }
 
     @EventHandler
@@ -382,7 +414,7 @@ final class Ui implements Listener {
 
     // ------------------------------------------------------------ 点击信标
     void onBeaconClick(Player p, Point pt) {
-        if (p.getUniqueId().equals(pt.owner) && pt.name == null && !pt.prompted) {
+        if (p.getUniqueId().equals(pt.owner) && pt.name() == null && !pt.prompted) {
             pt.prompted = true;
             plugin.store.markDirty();
             plugin.msg(p, "这是你刚放下的信标，先给它起个名字吧（以后再次右键即可打开传送菜单；发送 §c取消§f 则保留坐标名）。");
@@ -394,7 +426,7 @@ final class Ui implements Listener {
 
     // ------------------------------------------------------------ 改名
     String validate(String raw, Point self) {
-        String n = raw.replace("§", "").replaceAll("[\\r\\n\\t]", " ").trim();
+        String n = clean(raw);
         int max = plugin.getConfig().getInt("max-name-length", 24);
         if (n.isEmpty()) return "名字不能为空。";
         if (n.codePointCount(0, n.length()) > max) return "名字太长了（最多 " + max + " 个字符）。";
@@ -402,7 +434,9 @@ final class Ui implements Listener {
         return null;
     }
 
-    private static String clean(String raw) { return raw.replace("§", "").replaceAll("[\\r\\n\\t]", " ").trim(); }
+    private static final java.util.regex.Pattern WS = java.util.regex.Pattern.compile("[\\r\\n\\t]");
+
+    private static String clean(String raw) { return WS.matcher(raw.replace("§", "")).replaceAll(" ").trim(); }
 
     void startRename(Player p, Point pt) {
         if (pt.locked && !plugin.isAdmin(p)) {
@@ -413,12 +447,12 @@ final class Ui implements Listener {
         String title = direct ? "重命名信标「" + pt.displayName() + "」" : "申请重命名信标「" + pt.displayName() + "」（放置者 " + pt.ownerName + "）";
         String hint = direct ? "输入新名字（最多 " + plugin.getConfig().getInt("max-name-length", 24) + " 字符，发送「重置」恢复为坐标名）"
                 : "输入想改成的名字，将发给放置者确认";
-        askText(p, title, hint, "新名字", pt.name == null ? "" : pt.name, text -> {
+        askText(p, title, hint, "新名字", pt.name() == null ? "" : pt.name(), text -> {
             Point cur = plugin.store.byId.get(pt.id);
             if (cur == null) { plugin.msg(p, "§c这个传送点已经不存在了。"); return; }
             if (text.isBlank()) { plugin.msg(p, "§7名字为空，已取消。"); return; }
             if (direct && text.equals("重置")) {
-                cur.name = null; plugin.store.markDirty(); plugin.markers.refresh(cur);
+                plugin.store.rename(cur, null); plugin.markers.refresh(cur);
                 plugin.msg(p, "已恢复为坐标名「§b" + cur.displayName() + "§f」。");
                 return;
             }
@@ -427,9 +461,8 @@ final class Ui implements Listener {
             String name = clean(text);
             if (direct) {
                 String old = cur.displayName();
-                cur.name = name.equalsIgnoreCase(cur.defaultName()) ? null : name;
                 cur.prompted = true;
-                plugin.store.markDirty();
+                plugin.store.rename(cur, name.equalsIgnoreCase(cur.defaultName()) ? null : name);
                 plugin.markers.refresh(cur);
                 plugin.msg(p, "已将「" + old + "」重命名为「§b" + cur.displayName() + "§f」。");
                 if (!p.getUniqueId().equals(cur.owner) && cur.owner != null) {
@@ -532,9 +565,8 @@ final class Ui implements Listener {
             return;
         }
         String old = pt.displayName();
-        pt.name = r.newName.equalsIgnoreCase(pt.defaultName()) ? null : r.newName;
         pt.prompted = true;
-        plugin.store.markDirty();
+        plugin.store.rename(pt, r.newName.equalsIgnoreCase(pt.defaultName()) ? null : r.newName);
         plugin.markers.refresh(pt);
         plugin.msg(actor, "已同意：「" + old + "」→「§b" + pt.displayName() + "§f」。");
         tell(r, "你的改名申请已被同意：「" + old + "」→「" + pt.displayName() + "」。");

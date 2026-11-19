@@ -2,7 +2,6 @@ package cn.willgao.teleportbeacon;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
@@ -65,7 +64,7 @@ public final class TeleportBeaconPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         if (markers != null) markers.stop();
-        if (store != null) store.flush();
+        if (store != null) store.shutdown();
     }
 
     /** 补发缺少的信标/罗盘。返回是否发放了东西。 */
