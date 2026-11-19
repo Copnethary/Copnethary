@@ -21,3 +21,17 @@ marker:
   # 粒子刷新间隔（tick，最小 5）和可见距离（只有附近有玩家时才生成）
   particle-interval-ticks: 10
   particle-view-distance: 24
+
+# ---- 传送（1.1.6 新增）----
+teleport:
+  # 传送成功后多少秒内不能再次传送（0 = 不限制），用来节省服务器资源。
+  # 拥有 teleportbeacon.bypass-cooldown 权限的玩家不受限制（默认谁都没有，OP 也没有）。
+  cooldown-seconds: 30
+  # true = 调用原版 /tp 指令传送（execute in <维度> run minecraft:tp ...，推荐）
+  # false = 用插件 API 传送（效果与原版 /tp 相同）。原版指令不可用时会自动改用 API。
+  use-vanilla-tp: true
+  # 传送前在后台（不卡主线程）预热信标周围多少圈区块，玩家落地后地形显示更快。
+  # 0 = 只加载找落脚点必须的区块；最大 2。只读取已生成的区块，不会生成新地形。
+  preload-radius: 1
+  # 目标区块最长等待多少秒，超时则取消本次传送（不计冷却）
+  load-timeout-seconds: 10

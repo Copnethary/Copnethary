@@ -21,3 +21,6 @@ permissions:
   teleportbeacon.admin:
     description: 管理员：give / reload / 锁定解锁 / 直接改名任何未锁定的信标
     default: op
+  teleportbeacon.bypass-cooldown:
+    description: 传送后不受冷却限制（默认谁都没有，包括 OP；需要时用权限插件单独授予）
+    default: false

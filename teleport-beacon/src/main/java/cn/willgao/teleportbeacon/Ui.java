@@ -113,9 +113,11 @@ final class Ui implements Listener {
             acts.add(() -> plugin.teleporter.teleport(p, pt));
         }
         if (pg < pages - 1) { labels.add("下一页 »"); acts.add(() -> openMenu(p, f, pg + 1, source)); }
+        int cd = plugin.teleporter.cooldownLeft(p);
         String content = (f == null ? "共 " + all.size() + " 个传送点" : "搜索「" + f + "」：找到 " + all.size() + " 个")
                 + "，第 " + (pg + 1) + "/" + pages + " 页。点击名字即可传送。"
                 + (f == null ? "置顶的会排在前面（按拼音/字母排序）。" : "搜索结果按相关度排序。")
+                + (cd > 0 ? "\n§c传送冷却中：还需 " + cd + " 秒§r" : "")
                 + (source != null ? "\n当前信标：" + source.displayName() : "");
         return plugin.bedrock.simple(p, "传送信标", content, labels, idx -> {
             if (idx >= 0 && idx < acts.size()) acts.get(idx).run();
@@ -276,7 +278,12 @@ final class Ui implements Listener {
                     "仅管理员可见"));
             h.buttons.put(52, () -> setLocked(p, source, !source.locked));
         }
-        inv.setItem(49, button(Material.PAPER, "第 " + (pg + 1) + "/" + pages + " 页 · 共 " + all.size() + " 个", NamedTextColor.WHITE));
+        String pageInfo = "第 " + (pg + 1) + "/" + pages + " 页 · 共 " + all.size() + " 个";
+        int cd = plugin.teleporter.cooldownLeft(p);
+        inv.setItem(49, cd > 0
+                ? button(Material.CLOCK, pageInfo, NamedTextColor.WHITE, "传送冷却中：还需 " + cd + " 秒",
+                        "为节省服务器资源，每次传送后需等待 " + plugin.teleporter.cooldownSeconds() + " 秒")
+                : button(Material.PAPER, pageInfo, NamedTextColor.WHITE));
         inv.setItem(50, getBeaconBtn);
         h.buttons.put(50, () -> plugin.ensureItems(p, true));
         inv.setItem(51, getCompassBtn);
@@ -300,10 +307,8 @@ final class Ui implements Listener {
                 plugin.msg(p, now ? "已置顶「§b" + pt.displayName() + "§f」。" : "已取消置顶「§b" + pt.displayName() + "§f」。");
                 Bukkit.getScheduler().runTask(plugin, () -> reopenIfStillOpen(p, h));
             } else {
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    p.closeInventory();
-                    plugin.teleporter.teleport(p, pt);
-                });
+                // 冷却 / 正在传送 等检查都在 Teleporter 里：通过检查才关闭界面；冷却中菜单保留，聊天栏提示剩余秒数
+                Bukkit.getScheduler().runTask(plugin, () -> plugin.teleporter.teleport(p, pt));
             }
         } else if (r != null) {
             // 先关闭再执行（执行里会重新打开界面/要求聊天输入）

@@ -1,5 +1,6 @@
 package cn.willgao.teleportbeacon;
 
+import java.text.CollationKey;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -19,6 +20,8 @@ final class Point {
     // 缓存：显示名 / 小写显示名（排序、搜索、查重时不再反复 toLowerCase）
     private String display;
     private String lowerDisplay;
+    /** 拼音/字母排序键：改名时算一次，排序时只比较字节，不再每次比较都跑 Collator。 */
+    private CollationKey sortKey;
 
     Point(UUID id, String world, int x, int y, int z) {
         this.id = id; this.world = world; this.x = x; this.y = y; this.z = z;
@@ -45,7 +48,10 @@ final class Point {
     private void recompute() {
         display = name != null ? name : defaultName();
         lowerDisplay = display.toLowerCase(Locale.ROOT);
+        sortKey = Store.NAME_COLLATOR.getCollationKey(display);
     }
+
+    CollationKey sortKey() { return sortKey; }
 
     String displayName() { return display; }
 

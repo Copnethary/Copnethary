@@ -44,8 +44,9 @@ final class Items {
         m.displayName(line("传送罗盘", NamedTextColor.GOLD).decoration(TextDecoration.BOLD, true));
         m.lore(List.of(
                 line("手持右键：打开全服传送点列表", NamedTextColor.GRAY),
-                line("可点选传送，也可按名字搜索", NamedTextColor.GRAY),
-                line("右键收藏，Shift+左键置顶，可自定义排序", NamedTextColor.GRAY),
+                line("点选传送点即可传送，也可按名字搜索", NamedTextColor.GRAY),
+                line("Shift+左键置顶（只对自己生效）", NamedTextColor.GRAY),
+                line("每次传送后有一段冷却时间", NamedTextColor.GRAY),
                 line("丢了可用 /tb get 重新领取", NamedTextColor.DARK_GRAY)));
         m.setEnchantmentGlintOverride(true);
         m.getPersistentDataContainer().set(key, PersistentDataType.STRING, "compass");
@@ -53,9 +54,16 @@ final class Items {
         return it;
     }
 
+    /**
+     * 每次放方块、右键、死亡掉落都会调用，所以先比较物品类型（绝大多数物品到这里就结束），
+     * 再用只读的 PDC 视图读取标记，不再 getItemMeta() 复制整份物品数据。
+     */
     private String kind(ItemStack it) {
-        if (it == null || !it.hasItemMeta()) return null;
-        return it.getItemMeta().getPersistentDataContainer().get(key, PersistentDataType.STRING);
+        if (it == null) return null;
+        Material t = it.getType();
+        if (t != Material.BEACON && t != Material.COMPASS) return null;
+        if (!it.hasItemMeta()) return null;
+        return it.getPersistentDataContainer().get(key, PersistentDataType.STRING);
     }
 
     boolean isBeacon(ItemStack it) { return "beacon".equals(kind(it)); }

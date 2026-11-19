@@ -130,9 +130,16 @@ final class Markers implements Listener {
             // 预取玩家坐标，避免每个传送点都 getLocation()（每次都会 new Location）
             int pc = players.size();
             double[] px = new double[pc], py = new double[pc], pz = new double[pc];
+            // 刚传送到达的玩家几秒内不发粒子：把带宽留给地形区块，落地更流畅
+            boolean[] quiet = null;
             for (int i = 0; i < pc; i++) {
-                Location l = players.get(i).getLocation();
+                Player pl = players.get(i);
+                Location l = pl.getLocation();
                 px[i] = l.getX(); py[i] = l.getY(); pz[i] = l.getZ();
+                if (pulse && plugin.teleporter.isQuiet(pl)) {
+                    if (quiet == null) quiet = new boolean[pc];
+                    quiet[i] = true;
+                }
             }
 
             for (Point p : pts) {
@@ -148,6 +155,7 @@ final class Markers implements Listener {
                 if (pulse) {
                     double cx = p.x + 0.5, cz = p.z + 0.5;
                     for (int i = 0; i < pc; i++) {
+                        if (quiet != null && quiet[i]) continue;
                         double dx = px[i] - cx, dy = py[i] - p.y, dz = pz[i] - cz;
                         if (dx * dx + dy * dy + dz * dz <= viewDist2) particles(players.get(i), p);
                     }
@@ -190,6 +198,7 @@ final class Markers implements Listener {
             Component name = TeleportBeaconPlugin.text(txt);
             as = w.spawn(new Location(w, ax, ay, az), ArmorStand.class, s -> {
                 s.setPersistent(false);
+                s.setCanTick(false); // 纯名牌，不需要每 tick 跑生物逻辑（Paper API）
                 s.setInvisible(true);
                 s.setMarker(true);
                 s.setSmall(true);

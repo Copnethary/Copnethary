@@ -362,12 +362,13 @@ final class Store {
 
     // ================================================================ 排序
     // Locale.CHINA：汉字按拼音，与拉丁字母混排；PRIMARY = 忽略大小写。数字/符号通常排在字母前。
-    private static final Collator NAME_COLLATOR = Collator.getInstance(Locale.CHINA);
+    static final Collator NAME_COLLATOR = Collator.getInstance(Locale.CHINA);
     static {
         NAME_COLLATOR.setStrength(Collator.PRIMARY);
     }
+    /** 用 Point 里预先算好的 CollationKey 比较，结果与 Collator.compare 相同但快得多。 */
     private static final Comparator<Point> BY_NAME = (a, b) -> {
-        int c = NAME_COLLATOR.compare(a.displayName(), b.displayName());
+        int c = a.sortKey().compareTo(b.sortKey());
         return c != 0 ? c : a.id.compareTo(b.id);
     };
 

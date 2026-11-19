@@ -62,6 +62,7 @@ final class Cmd implements CommandExecutor, TabCompleter {
                 plugin.store.flush();
                 plugin.reloadConfig();
                 plugin.markers.reloadSettings();
+                plugin.teleporter.reloadSettings();
                 plugin.store.load();
                 plugin.markers.removeAll();
                 plugin.markers.syncAll();
