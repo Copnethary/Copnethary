@@ -185,6 +185,7 @@ final class Listeners implements Listener {
             e.setCancelled(true);
             if (!debounce(p)) return;
             if (!p.hasPermission("teleportbeacon.use")) { plugin.msg(p, "§c你没有使用传送罗盘的权限。"); return; }
+            if (plugin.teleporter.blockCompass(p)) return; // 传送后的冷却期内不弹菜单，只提示稍后再试
             plugin.ui.openMenu(p, null, 0, null);
         }
     }

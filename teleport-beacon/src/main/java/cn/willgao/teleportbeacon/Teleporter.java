@@ -37,7 +37,7 @@ import java.util.concurrent.CompletableFuture;
  *   <li>区块就绪后（主线程）：确认信标还在 → 找落脚点（优先站在信标正上方）→
  *       调用原版 {@code /tp} 指令：{@code execute in <维度> run minecraft:tp <玩家UUID> x y z}。
  *       指令用静默执行者发出，不会刷屏给 OP / 控制台；万一指令不可用，自动退回插件 API 传送（效果相同）。</li>
- *   <li>成功后进入冷却（默认 30 秒）并提示玩家；到达后 3 秒内不给该玩家发信标粒子，把带宽留给地形加载。</li>
+ *   <li>成功后进入冷却（默认 60 秒，冷却内罗盘打不开菜单）并提示玩家；到达后 3 秒内不给该玩家发信标粒子，把带宽留给地形加载。</li>
  * </ol>
  * 只在主线程使用，不需要并发容器。
  */
@@ -89,7 +89,7 @@ final class Teleporter implements Listener {
 
     // ---- 缓存的配置
     private int cooldownSec, warmRadius, timeoutSec;
-    private boolean vanillaTp;
+    private boolean vanillaTp, lockCompass;
 
     // ---- 原版 /tp
     private CommandSender silent;
@@ -105,13 +105,34 @@ final class Teleporter implements Listener {
 
     void reloadSettings() {
         FileConfiguration c = plugin.getConfig();
-        cooldownSec = Math.max(0, c.getInt("teleport.cooldown-seconds", 30));
+        cooldownSec = Math.max(0, c.getInt("teleport.cooldown-seconds", 60));
+        lockCompass = c.getBoolean("teleport.lock-compass-during-cooldown", true);
         vanillaTp = c.getBoolean("teleport.use-vanilla-tp", true);
         warmRadius = Math.max(0, Math.min(2, c.getInt("teleport.preload-radius", 1)));
         timeoutSec = Math.max(3, c.getInt("teleport.load-timeout-seconds", 10));
     }
 
     int cooldownSeconds() { return cooldownSec; }
+
+    /** 冷却时长的文字：60 的倍数写成「N 分钟」，否则「N 秒」。 */
+    String cooldownText() {
+        return cooldownSec >= 60 && cooldownSec % 60 == 0 ? (cooldownSec / 60) + " 分钟" : cooldownSec + " 秒";
+    }
+
+    /**
+     * 传送后的冷却期内，成员单击罗盘不会弹出菜单，只提示稍后再试（提示每秒最多一条）。
+     * 管理员不受限制（要管理 / 删除传送点），拥有免冷却权限的玩家同样不受限制。
+     * @return true = 已拦截，调用方不要再打开菜单
+     */
+    boolean blockCompass(Player p) {
+        if (!lockCompass || plugin.isAdmin(p)) return false;
+        int left = cooldownLeft(p);
+        if (left <= 0) return false;
+        if (noticeAllowed(p.getUniqueId())) {
+            plugin.msg(p, "§c刚刚传送过，传送罗盘暂时无法使用，请 §e" + cooldownText() + "§c后再试。§7（还剩 " + left + " 秒）");
+        }
+        return true;
+    }
 
     /** 剩余冷却秒数（向上取整）；0 = 现在可以传送。 */
     int cooldownLeft(Player p) {
@@ -182,7 +203,7 @@ final class Teleporter implements Listener {
         if (left > 0) {
             if (noticeAllowed(u)) {
                 plugin.msg(p, "§c传送冷却中，还需 §e" + left + " §c秒才能再次传送。§7（为节省服务器资源，每次传送后需等待 "
-                        + cooldownSec + " 秒）");
+                        + cooldownText() + "）");
                 p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.6f, 0.8f);
             }
             return;
@@ -297,7 +318,7 @@ final class Teleporter implements Listener {
         }
         p.playSound(p.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
         plugin.msg(p, "已到达「§b" + pt.displayName() + "§f」。"
-                + (cd ? "§7为节省服务器资源，§e" + cooldownSec + " 秒§7内不能再次传送。" : ""));
+                + (cd ? "§7为节省服务器资源，§e" + cooldownText() + "§7内不能再次传送，罗盘也暂时打不开，请到时间后再试。" : ""));
     }
 
     // ================================================================ 执行传送

@@ -24,9 +24,11 @@ marker:
 
 # ---- 传送（1.1.6 新增）----
 teleport:
-  # 传送成功后多少秒内不能再次传送（0 = 不限制），用来节省服务器资源。
+  # 传送成功后多少秒内不能再次传送（0 = 不限制），用来节省服务器资源。60 = 1 分钟。
   # 拥有 teleportbeacon.bypass-cooldown 权限的玩家不受限制（默认谁都没有，OP 也没有）。
-  cooldown-seconds: 30
+  cooldown-seconds: 60
+  # 冷却期内，成员单击传送罗盘不弹菜单，只提示「请 1 分钟后再试」。管理员不受限制。false = 冷却期内仍可打开菜单（只是不能传送）。
+  lock-compass-during-cooldown: true
   # true = 调用原版 /tp 指令传送（execute in <维度> run minecraft:tp ...，推荐）
   # false = 用插件 API 传送（效果与原版 /tp 相同）。原版指令不可用时会自动改用 API。
   use-vanilla-tp: true

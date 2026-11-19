@@ -284,7 +284,7 @@ final class Ui implements Listener {
         int cd = plugin.teleporter.cooldownLeft(p);
         inv.setItem(49, cd > 0
                 ? button(Material.CLOCK, pageInfo, NamedTextColor.WHITE, "传送冷却中：还需 " + cd + " 秒",
-                        "为节省服务器资源，每次传送后需等待 " + plugin.teleporter.cooldownSeconds() + " 秒")
+                        "为节省服务器资源，每次传送后需等待 " + plugin.teleporter.cooldownText())
                 : button(Material.PAPER, pageInfo, NamedTextColor.WHITE));
         inv.setItem(50, getBeaconBtn);
         h.buttons.put(50, () -> plugin.ensureItems(p, true));
