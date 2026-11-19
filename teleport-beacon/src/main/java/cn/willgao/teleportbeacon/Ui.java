@@ -105,6 +105,7 @@ final class Ui implements Listener {
         }
         labels.add("领取传送信标 / 罗盘"); acts.add(() -> plugin.ensureItems(p, true));
         labels.add("管理置顶"); acts.add(() -> openPinForm(p, 0, source));
+        if (plugin.isAdmin(p)) { labels.add("§c管理员：删除传送点"); acts.add(() -> openDeleteForm(p, 0, source)); }
         if (pg > 0) { labels.add("« 上一页"); acts.add(() -> openMenu(p, f, pg - 1, source)); }
         int from = pg * PAGE_FORM, to = Math.min(all.size(), from + PAGE_FORM);
         for (int i = from; i < to; i++) {
@@ -250,6 +251,7 @@ final class Ui implements Listener {
             lore.add(Component.empty());
             lore.add(l("左键：传送", NamedTextColor.GREEN));
             lore.add(l("Shift+左键：" + (pinned ? "取消置顶" : "置顶"), NamedTextColor.YELLOW));
+            if (plugin.isAdmin(p)) lore.add(l("右键：管理 / 删除（仅管理员）", NamedTextColor.RED));
             m.lore(lore);
             it.setItemMeta(m);
             inv.setItem(slot, it);
@@ -306,6 +308,8 @@ final class Ui implements Listener {
                 boolean now = plugin.store.togglePin(p, pt);
                 plugin.msg(p, now ? "已置顶「§b" + pt.displayName() + "§f」。" : "已取消置顶「§b" + pt.displayName() + "§f」。");
                 Bukkit.getScheduler().runTask(plugin, () -> reopenIfStillOpen(p, h));
+            } else if ((click == ClickType.RIGHT || click == ClickType.SHIFT_RIGHT) && plugin.isAdmin(p)) {
+                Bukkit.getScheduler().runTask(plugin, () -> openManage(p, pt, h.filter, h.page, h.source));
             } else {
                 // 冷却 / 正在传送 等检查都在 Teleporter 里：通过检查才关闭界面；冷却中菜单保留，聊天栏提示剩余秒数
                 Bukkit.getScheduler().runTask(plugin, () -> plugin.teleporter.teleport(p, pt));
@@ -323,7 +327,125 @@ final class Ui implements Listener {
 
     @EventHandler
     public void onDrag(InventoryDragEvent e) {
-        if (e.getView().getTopInventory().getHolder() instanceof MenuHolder) e.setCancelled(true);
+        InventoryHolder top = e.getView().getTopInventory().getHolder();
+        if (top instanceof MenuHolder || top instanceof ManageHolder) e.setCancelled(true);
+    }
+
+    // ------------------------------------------------------------ 管理员：管理 / 删除传送点
+    static final class ManageHolder implements InventoryHolder {
+        Inventory inv;
+        Point point, source;
+        String filter; int page;
+        boolean confirm;
+        @Override public Inventory getInventory() { return inv; }
+    }
+
+    private static final int M_TP = 11, M_DEL = 15, M_BACK = 22;
+
+    private void openManage(Player p, Point pt, String filter, int page, Point source) {
+        if (!plugin.isAdmin(p)) return;
+        if (plugin.store.byId.get(pt.id) != pt) { plugin.msg(p, "§c这个传送点已经不存在了。"); openMenu(p, filter, page, source); return; }
+        ManageHolder h = new ManageHolder();
+        h.point = pt; h.filter = filter; h.page = page; h.source = source;
+        h.inv = Bukkit.createInventory(h, 27, Component.text("管理传送点 · " + pt.displayName()));
+        fillManage(h);
+        p.openInventory(h.inv);
+    }
+
+    private void fillManage(ManageHolder h) {
+        Point pt = h.point;
+        Inventory inv = h.inv;
+        inv.clear();
+        for (int s = 0; s < 27; s++) inv.setItem(s, filler);
+        inv.setItem(4, button(icon(pt), pt.displayName(), NamedTextColor.AQUA,
+                "世界：" + worldLabel(pt.world), "坐标：" + pt.x + ", " + pt.y + ", " + pt.z,
+                "放置者：" + pt.ownerName, pt.locked ? "【已锁定】" : "未锁定"));
+        if (!h.confirm) {
+            inv.setItem(M_TP, button(Material.ENDER_PEARL, "传送到这里", NamedTextColor.GREEN));
+            inv.setItem(M_DEL, button(Material.TNT, "删除这个传送点", NamedTextColor.RED,
+                    "会同时移除世界里的信标方块", "下一步还需要再确认一次"));
+        } else {
+            inv.setItem(M_TP, button(Material.RED_STAINED_GLASS_PANE, "取消", NamedTextColor.GREEN));
+            inv.setItem(M_DEL, button(Material.LIME_CONCRETE, "确认删除「" + pt.displayName() + "」", NamedTextColor.RED,
+                    "此操作不可撤销"));
+        }
+        inv.setItem(M_BACK, button(Material.ARROW, "返回列表", NamedTextColor.YELLOW));
+    }
+
+    @EventHandler
+    public void onManageClick(InventoryClickEvent e) {
+        if (!(e.getView().getTopInventory().getHolder() instanceof ManageHolder h)) return;
+        e.setCancelled(true);
+        if (!(e.getWhoClicked() instanceof Player p)) return;
+        if (e.getClickedInventory() != e.getView().getTopInventory()) return;
+        int slot = e.getRawSlot();
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!p.isOnline() || !plugin.isAdmin(p)) { p.closeInventory(); return; }
+            if (slot == M_BACK) { openMenu(p, h.filter, h.page, h.source); return; }
+            if (slot == M_TP) {
+                if (h.confirm) { h.confirm = false; fillManage(h); }
+                else plugin.teleporter.teleport(p, h.point);
+                return;
+            }
+            if (slot != M_DEL) return;
+            if (!h.confirm) { h.confirm = true; fillManage(h); return; }
+            deletePoint(p, h.point);
+            openMenu(p, h.filter, h.page, h.source == h.point ? null : h.source);
+        });
+    }
+
+    /** 基岩版：管理员删除传送点的列表。 */
+    private void openDeleteForm(Player p, int page, Point source) {
+        if (!plugin.isAdmin(p)) return;
+        List<Point> all = plugin.store.sortedFor(null, null);
+        int pages = Math.max(1, (all.size() + PAGE_FORM - 1) / PAGE_FORM);
+        int pg = Math.min(Math.max(0, page), pages - 1);
+        List<String> labels = new ArrayList<>();
+        List<Runnable> acts = new ArrayList<>();
+        labels.add("返回传送菜单"); acts.add(() -> openMenu(p, null, 0, source));
+        if (pg > 0) { labels.add("« 上一页"); acts.add(() -> openDeleteForm(p, pg - 1, source)); }
+        int from = pg * PAGE_FORM, to = Math.min(all.size(), from + PAGE_FORM);
+        for (int i = from; i < to; i++) {
+            Point pt = all.get(i);
+            labels.add("§c删除 · §r§l" + pt.displayName() + "§r\n§8" + worldLabel(pt.world) + " " + pt.coords());
+            acts.add(() -> {
+                boolean ok = plugin.bedrock.modal(p, "删除传送点",
+                        "确定删除「" + pt.displayName() + "」吗？\n" + worldLabel(pt.world) + " " + pt.coords()
+                                + "\n会同时移除世界里的信标方块，不可撤销。", "删除", "取消", yes -> {
+                            if (yes) deletePoint(p, pt);
+                            openDeleteForm(p, pg, source == pt ? null : source);
+                        });
+                if (!ok) openDeleteForm(p, pg, source);
+            });
+        }
+        if (pg < pages - 1) { labels.add("下一页 »"); acts.add(() -> openDeleteForm(p, pg + 1, source)); }
+        String content = "管理员专用：点击传送点后再确认即可删除。第 " + (pg + 1) + "/" + pages + " 页，共 " + all.size() + " 个。";
+        if (!plugin.bedrock.simple(p, "删除传送点", content, labels, idx -> {
+            if (idx >= 0 && idx < acts.size()) acts.get(idx).run();
+        })) openMenu(p, null, 0, source);
+    }
+
+    /** 删除传送点（仅管理员）：移除记录和名牌，并清掉世界里的信标方块；放置者会收到通知。 */
+    void deletePoint(Player admin, Point pt) {
+        if (!plugin.isAdmin(admin)) { plugin.msg(admin, "§c只有管理员可以删除传送点。"); return; }
+        if (plugin.store.byId.get(pt.id) != pt) { plugin.msg(admin, "§c这个传送点已经不存在了。"); return; }
+        String name = pt.displayName();
+        plugin.store.remove(pt);
+        plugin.getLogger().info("管理员 " + admin.getName() + " 删除了传送点「" + name + "」(" + pt.world + " " + pt.coords() + ")");
+        plugin.msg(admin, "已删除传送点「§b" + name + "§f」。");
+        if (pt.owner != null && !pt.owner.equals(admin.getUniqueId())) {
+            Player o = Bukkit.getPlayer(pt.owner);
+            String m = "你的传送点「" + name + "」被管理员 " + admin.getName() + " 删除了。";
+            if (o != null) plugin.msg(o, "§e" + m); else plugin.store.addNotice(pt.owner, m);
+        }
+        World w = Bukkit.getWorld(pt.world);
+        if (w == null) return;
+        // 区块没加载就在后台加载（不卡主线程），确认还是信标且没有新传送点占用后再清掉方块
+        w.getChunkAtAsync(pt.chunkX(), pt.chunkZ(), false).thenAccept(c -> {
+            if (c == null) return;
+            org.bukkit.block.Block b = w.getBlockAt(pt.x, pt.y, pt.z);
+            if (b.getType() == Material.BEACON && plugin.store.at(b) == null) b.setType(Material.AIR, false);
+        });
     }
 
     // ------------------------------------------------------------ 文字输入
