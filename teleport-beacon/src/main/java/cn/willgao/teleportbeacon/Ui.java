@@ -446,8 +446,7 @@ final class Ui implements Listener {
 
     void startRename(Player p, Point pt) {
         if (pt.locked) {
-            plugin.msg(p, "§c这个信标已被管理员锁定，任何人（包括管理员）都不能改名。请先解锁后再改名。");
-            return;
+            return; // 已锁定：静默拒绝改名
         }
         boolean direct = canRenameDirect(p, pt);
         String title = direct ? "重命名信标「" + pt.displayName() + "」" : "申请重命名信标「" + pt.displayName() + "」（放置者 " + pt.ownerName + "）";
@@ -456,7 +455,7 @@ final class Ui implements Listener {
         askText(p, title, hint, "新名字", pt.name() == null ? "" : pt.name(), text -> {
             Point cur = plugin.store.byId.get(pt.id);
             if (cur == null) { plugin.msg(p, "§c这个传送点已经不存在了。"); return; }
-            if (cur.locked) { plugin.msg(p, "§c这个信标已被管理员锁定，任何人（包括管理员）都不能改名。请先解锁后再改名。"); return; }
+            if (cur.locked) return; // 输入期间被锁定：静默放弃
             if (text.isBlank()) { plugin.msg(p, "§7名字为空，已取消。"); return; }
             if (direct && text.equals("重置")) {
                 plugin.store.rename(cur, null); plugin.markers.refresh(cur);
@@ -502,8 +501,7 @@ final class Ui implements Listener {
                 }
             }
         }
-        plugin.msg(actor, "已" + (lock ? "§c锁定" : "§a解锁") + "§f传送信标「§b" + pt.displayName() + "§f」"
-                + (lock ? "：任何人（包括管理员）都无法挖掉，怪物/爆炸/活塞也破坏不了；也不能被任何人（包括管理员）改名，解锁后才能改名。" : "：现在可以被挖掉、改名了。"));
+        plugin.msg(actor, "已" + (lock ? "§c锁定" : "§a解锁") + "§f「§b" + pt.displayName() + "§f」。");
     }
 
     // ------------------------------------------------------------ 改名申请
@@ -570,7 +568,6 @@ final class Ui implements Listener {
         if (r == null || pt == null) { plugin.msg(actor, "§c该申请已失效或已处理。"); if (r != null) plugin.store.removeRequest(id); return; }
         if (!checkActor(actor, pt)) { plugin.msg(actor, "§c只有该信标的放置者或管理员可以处理这条申请。"); return; }
         if (pt.locked) { // 申请保留，解锁后还可以再同意
-            plugin.msg(actor, "§c这个信标已被管理员锁定，任何人（包括管理员）都不能改名。解锁后可再同意这条申请。");
             return;
         }
         plugin.store.removeRequest(id);
