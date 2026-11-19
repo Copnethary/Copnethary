@@ -9,7 +9,7 @@ commands:
   beacon:
     aliases: [tb, 传送信标]
     description: 打开传送信标菜单
-    usage: /<command> [search <关键字>|list|get|tp <名字>|requests|fav|pin|moveup|movedown|give|lock|unlock|reload]
+    usage: /<command> [search <关键字>|list|get|tp <名字>|requests|pin|unpin|give|lock|unlock|reload]
     permission: teleportbeacon.use
 permissions:
   teleportbeacon.use:

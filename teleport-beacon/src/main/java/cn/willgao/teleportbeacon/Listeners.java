@@ -42,6 +42,11 @@ final class Listeners implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
+        // 清理旧版“到达保护”可能残留的无敌状态
+        if (p.isInvulnerable() && p.getGameMode() != org.bukkit.GameMode.CREATIVE
+                && p.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
+            p.setInvulnerable(false);
+        }
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!p.isOnline()) return;
             if (plugin.getConfig().getBoolean("auto-give", true)) plugin.ensureItems(p, false);
@@ -51,6 +56,7 @@ final class Listeners implements Listener {
 
     @EventHandler
     public void onDeath(PlayerDeathEvent e) {
+        plugin.teleporter.onDeath(e.getEntity());
         // 死亡不掉落这两种物品（反正可以重新领取）
         e.getDrops().removeIf(plugin.items::isAny);
     }
@@ -64,7 +70,10 @@ final class Listeners implements Listener {
     }
 
     @EventHandler
-    public void onQuit(org.bukkit.event.player.PlayerQuitEvent e) { lastClick.remove(e.getPlayer().getUniqueId()); }
+    public void onQuit(org.bukkit.event.player.PlayerQuitEvent e) {
+        lastClick.remove(e.getPlayer().getUniqueId());
+        plugin.teleporter.forget(e.getPlayer().getUniqueId());
+    }
 
     // ---------------------------------------------------------------- 放置
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)

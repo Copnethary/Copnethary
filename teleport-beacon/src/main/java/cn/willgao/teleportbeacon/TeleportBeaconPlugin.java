@@ -63,6 +63,7 @@ public final class TeleportBeaconPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (teleporter != null) teleporter.shutdown();
         if (markers != null) markers.stop();
         if (store != null) store.shutdown();
     }

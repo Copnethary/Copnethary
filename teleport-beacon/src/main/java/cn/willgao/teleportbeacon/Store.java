@@ -6,6 +6,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
+import java.text.Collator;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -45,7 +46,7 @@ final class Store {
         return t;
     });
 
-    /** 每个玩家自己的置顶 / 收藏 / 自定义排序（不影响其他人）。 */
+    /** 每个玩家的偏好。置顶仍会使用；favorites/order 只读写保留，不再用于排序或界面。 */
     static final class Prefs {
         String name = "";
         final LinkedHashSet<UUID> pinned = new LinkedHashSet<>();
@@ -360,47 +361,63 @@ final class Store {
     }
 
     // ================================================================ 排序
-    private static final Comparator<Point> BY_NAME = Comparator.comparing(Point::lowerName);
+    // Locale.CHINA：汉字按拼音，与拉丁字母混排；PRIMARY = 忽略大小写。数字/符号通常排在字母前。
+    private static final Collator NAME_COLLATOR = Collator.getInstance(Locale.CHINA);
+    static {
+        NAME_COLLATOR.setStrength(Collator.PRIMARY);
+    }
+    private static final Comparator<Point> BY_NAME = (a, b) -> {
+        int c = NAME_COLLATOR.compare(a.displayName(), b.displayName());
+        return c != 0 ? c : a.id.compareTo(b.id);
+    };
 
-    /** 默认排序：按名字（控制台或没有个人偏好时）。 */
+    /** 默认排序：按名字（拼音 / 字母）。搜索时按相关度。 */
     List<Point> sorted(String filter) {
-        List<Point> out = filtered(filter);
-        out.sort(BY_NAME);
-        return out;
+        return sortedFor(null, filter);
     }
 
-    /** 排序用的预计算键：一次算好 group / 次序，比较时不再查 Set / Map。 */
-    private record Keyed(Point p, int group, int idx) { }
-
-    private static final Comparator<Keyed> KEYED = Comparator
-            .comparingInt(Keyed::group)
-            .thenComparingInt(Keyed::idx)
-            .thenComparing(k -> k.p().lowerName());
-
-    /** 个人排序：置顶 → 收藏 → 自定义顺序 → 默认名字。 */
+    /**
+     * 无搜索：置顶（组内按名字）→ 其余按名字。
+     * 有搜索：按相关度排序，置顶不压过相关度；同相关度内按名字。
+     * 收藏和自定义顺序不参与排序（数据仍保留在 data.yml）。
+     */
     List<Point> sortedFor(UUID player, String filter) {
-        List<Point> out = filtered(filter);
+        String f = (filter == null || filter.isBlank()) ? null : filter.trim().toLowerCase(Locale.ROOT);
+        List<Point> out = filtered(f);
+        if (f != null) {
+            out.sort((a, b) -> {
+                int ra = relevance(a, f), rb = relevance(b, f);
+                if (ra != rb) return Integer.compare(ra, rb);
+                return BY_NAME.compare(a, b);
+            });
+            return out;
+        }
         Prefs pr = player == null ? null : prefs.get(player);
-        if (pr == null || pr.isEmpty()) {
+        if (pr == null || pr.pinned.isEmpty()) {
             out.sort(BY_NAME);
             return out;
         }
-        Map<UUID, Integer> orderIdx = new HashMap<>(pr.order.size() * 2);
-        for (int i = 0; i < pr.order.size(); i++) orderIdx.put(pr.order.get(i), i);
-        Map<UUID, Integer> pinIdx = new HashMap<>(pr.pinned.size() * 2);
-        int pi = 0;
-        for (UUID id : pr.pinned) pinIdx.put(id, pi++);
-        List<Keyed> keyed = new ArrayList<>(out.size());
-        for (Point p : out) {
-            Integer pin = pinIdx.get(p.id);
-            if (pin != null) { keyed.add(new Keyed(p, 0, pin)); continue; }
-            int g = pr.favorites.contains(p.id) ? 1 : 2;
-            keyed.add(new Keyed(p, g, orderIdx.getOrDefault(p.id, Integer.MAX_VALUE)));
+        List<Point> pinned = new ArrayList<>();
+        List<Point> rest = new ArrayList<>();
+        for (Point pt : out) {
+            if (pr.pinned.contains(pt.id)) pinned.add(pt);
+            else rest.add(pt);
         }
-        keyed.sort(KEYED);
+        pinned.sort(BY_NAME);
+        rest.sort(BY_NAME);
         out.clear();
-        for (Keyed k : keyed) out.add(k.p());
+        out.addAll(pinned);
+        out.addAll(rest);
         return out;
+    }
+
+    /** 0=名字完全匹配，1=名字前缀，2=名字包含，3=放置者/世界包含。 */
+    private static int relevance(Point p, String f) {
+        String n = p.lowerName();
+        if (n.equals(f)) return 0;
+        if (n.startsWith(f)) return 1;
+        if (n.contains(f)) return 2;
+        return 3;
     }
 
     private List<Point> filtered(String filter) {
@@ -425,11 +442,6 @@ final class Store {
         return pr != null && pr.pinned.contains(point);
     }
 
-    boolean isFavorite(UUID player, UUID point) {
-        Prefs pr = prefs.get(player);
-        return pr != null && pr.favorites.contains(point);
-    }
-
     private Prefs touch(Player p) {
         Prefs pr = prefsOf(p.getUniqueId());
         if (p.getName() != null && !p.getName().equals(pr.name)) pr.name = p.getName();
@@ -442,39 +454,6 @@ final class Store {
         next.addAll(pr.pinned);
         pr.pinned.clear();
         pr.pinned.addAll(next);
-    }
-
-    /** @return 收藏后为 true，取消收藏为 false */
-    boolean toggleFavorite(Player p, Point pt) {
-        Prefs pr = touch(p);
-        boolean now;
-        if (pr.favorites.remove(pt.id)) {
-            now = false;
-        } else {
-            pr.favorites.add(pt.id);
-            // 新收藏尽量排在收藏分组前面
-            pr.order.remove(pt.id);
-            pr.order.add(0, pt.id);
-            now = true;
-        }
-        markDirty();
-        return now;
-    }
-
-    boolean setFavorite(Player p, Point pt, boolean fav) {
-        Prefs pr = touch(p);
-        boolean changed;
-        if (fav) {
-            changed = pr.favorites.add(pt.id);
-            if (changed) {
-                pr.order.remove(pt.id);
-                pr.order.add(0, pt.id);
-            }
-        } else {
-            changed = pr.favorites.remove(pt.id);
-        }
-        if (changed) markDirty();
-        return fav;
     }
 
     /** @return 置顶后为 true，取消置顶为 false */
@@ -502,35 +481,5 @@ final class Store {
         }
         if (changed) markDirty();
         return pin;
-    }
-
-    private static int group(Prefs pr, UUID id) {
-        if (pr.pinned.contains(id)) return 0;
-        if (pr.favorites.contains(id)) return 1;
-        return 2;
-    }
-
-    /**
-     * 在同一分组内上移或下移。
-     * @return false 表示已经在该组最前/最后，无法再移动
-     */
-    boolean move(Player p, Point pt, boolean up) {
-        Prefs pr = touch(p);
-        List<Point> list = sortedFor(p.getUniqueId(), null);
-        int i = list.indexOf(pt);
-        if (i < 0) return false;
-        int j = up ? i - 1 : i + 1;
-        if (j < 0 || j >= list.size()) return false;
-        if (group(pr, list.get(i).id) != group(pr, list.get(j).id)) return false;
-        Collections.swap(list, i, j);
-        LinkedHashSet<UUID> stillPinned = new LinkedHashSet<>(pr.pinned);
-        pr.order.clear();
-        pr.pinned.clear();
-        for (Point x : list) {
-            pr.order.add(x.id);
-            if (stillPinned.contains(x.id)) pr.pinned.add(x.id);
-        }
-        markDirty();
-        return true;
     }
 }

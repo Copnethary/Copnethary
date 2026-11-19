@@ -92,7 +92,7 @@ final class Ui implements Listener {
         int pg = Math.min(Math.max(0, page), pages - 1);
         List<String> labels = new ArrayList<>();
         List<Runnable> acts = new ArrayList<>();
-        labels.add("§l搜索传送点"); acts.add(() -> askSearch(p, source));
+        labels.add("§l查找传送点"); acts.add(() -> askSearch(p, source));
         if (f != null) { labels.add("清除搜索（显示全部）"); acts.add(() -> openMenu(p, null, 0, source)); }
         if (source != null) {
             labels.add(source.locked ? "§7重命名本信标（已锁定，解锁后才能改名）"
@@ -104,7 +104,7 @@ final class Ui implements Listener {
             acts.add(() -> setLocked(p, source, !source.locked));
         }
         labels.add("领取传送信标 / 罗盘"); acts.add(() -> plugin.ensureItems(p, true));
-        labels.add("管理收藏 / 置顶 / 排序"); acts.add(() -> openPrefForm(p, f, 0, source));
+        labels.add("管理置顶"); acts.add(() -> openPinForm(p, 0, source));
         if (pg > 0) { labels.add("« 上一页"); acts.add(() -> openMenu(p, f, pg - 1, source)); }
         int from = pg * PAGE_FORM, to = Math.min(all.size(), from + PAGE_FORM);
         for (int i = from; i < to; i++) {
@@ -114,7 +114,8 @@ final class Ui implements Listener {
         }
         if (pg < pages - 1) { labels.add("下一页 »"); acts.add(() -> openMenu(p, f, pg + 1, source)); }
         String content = (f == null ? "共 " + all.size() + " 个传送点" : "搜索「" + f + "」：找到 " + all.size() + " 个")
-                + "，第 " + (pg + 1) + "/" + pages + " 页。点击名字即可传送。置顶和收藏的会排在前面。"
+                + "，第 " + (pg + 1) + "/" + pages + " 页。点击名字即可传送。"
+                + (f == null ? "置顶的会排在前面（按拼音/字母排序）。" : "搜索结果按相关度排序。")
                 + (source != null ? "\n当前信标：" + source.displayName() : "");
         return plugin.bedrock.simple(p, "传送信标", content, labels, idx -> {
             if (idx >= 0 && idx < acts.size()) acts.get(idx).run();
@@ -122,82 +123,46 @@ final class Ui implements Listener {
     }
 
     private void askSearch(Player p, Point source) {
-        askText(p, "搜索传送点", "输入要搜索的名字 / 放置者 / 世界关键字", "", "", s -> {
+        askText(p, "查找传送点", "输入要搜索的名字关键字（也匹配放置者、世界）", "", "", s -> {
             if (s.isBlank()) { openMenu(p, null, 0, source); return; }
             openMenu(p, s, 0, source);
         });
     }
 
     private String formLabel(Player p, Point pt) {
-        String tags = "";
-        Store.Prefs pr = plugin.store.prefs.get(p.getUniqueId());
-        if (pr != null && pr.pinned.contains(pt.id)) tags = "§e★ ";
-        else if (pr != null && pr.favorites.contains(pt.id)) tags = "§6❤ ";
+        boolean pinned = plugin.store.isPinned(p.getUniqueId(), pt.id);
+        String tags = pinned ? "§e★ " : "";
         return tags + "§l" + pt.displayName() + "§r" + (pt.locked ? " §c[已锁定]§r" : "")
                 + "\n§8" + worldLabel(pt.world) + " " + pt.coords() + " · " + pt.ownerName;
     }
 
-    /** 基岩版：选择一个传送点后管理收藏 / 置顶 / 排序（主列表点击仍是传送）。 */
-    private void openPrefForm(Player p, String f, int page, Point source) {
-        List<Point> all = plugin.store.sortedFor(p.getUniqueId(), f);
+    /** 基岩版：管理置顶（主列表点击仍是传送）。 */
+    private void openPinForm(Player p, int page, Point source) {
+        List<Point> all = plugin.store.sortedFor(p.getUniqueId(), null);
         int pages = Math.max(1, (all.size() + PAGE_FORM - 1) / PAGE_FORM);
         int pg = Math.min(Math.max(0, page), pages - 1);
         List<String> labels = new ArrayList<>();
         List<Runnable> acts = new ArrayList<>();
-        labels.add("返回传送菜单"); acts.add(() -> openMenu(p, f, 0, source));
-        if (pg > 0) { labels.add("« 上一页"); acts.add(() -> openPrefForm(p, f, pg - 1, source)); }
+        labels.add("返回传送菜单"); acts.add(() -> openMenu(p, null, 0, source));
+        if (pg > 0) { labels.add("« 上一页"); acts.add(() -> openPinForm(p, pg - 1, source)); }
         int from = pg * PAGE_FORM, to = Math.min(all.size(), from + PAGE_FORM);
+        UUID uid = p.getUniqueId();
         for (int i = from; i < to; i++) {
             Point pt = all.get(i);
-            labels.add(formLabel(p, pt));
-            acts.add(() -> openPrefActions(p, f, source, pt));
+            boolean pinned = plugin.store.isPinned(uid, pt.id);
+            labels.add((pinned ? "§e★ 取消置顶 · " : "置顶 · ") + "§l" + pt.displayName());
+            acts.add(() -> {
+                boolean now = plugin.store.togglePin(p, pt);
+                plugin.msg(p, now ? "已置顶「§b" + pt.displayName() + "§f」。" : "已取消置顶「§b" + pt.displayName() + "§f」。");
+                openPinForm(p, pg, source);
+            });
         }
-        if (pg < pages - 1) { labels.add("下一页 »"); acts.add(() -> openPrefForm(p, f, pg + 1, source)); }
-        String content = "选择一个传送点来收藏、置顶或调整顺序。这些设置只对你自己生效。\n第 "
+        if (pg < pages - 1) { labels.add("下一页 »"); acts.add(() -> openPinForm(p, pg + 1, source)); }
+        String content = "点击传送点即可置顶或取消置顶，只对你自己生效。置顶的会排在传送列表最前面。\n第 "
                 + (pg + 1) + "/" + pages + " 页，共 " + all.size() + " 个。";
-        if (!plugin.bedrock.simple(p, "管理收藏与排序", content, labels, idx -> {
+        if (!plugin.bedrock.simple(p, "管理置顶", content, labels, idx -> {
             if (idx >= 0 && idx < acts.size()) acts.get(idx).run();
-        })) {
-            plugin.msg(p, "§c无法打开基岩版表单，请改用命令：/tb fav|pin|moveup|movedown <名字>");
-        }
-    }
-
-    private void openPrefActions(Player p, String f, Point source, Point pt) {
-        boolean pinned = plugin.store.isPinned(p.getUniqueId(), pt.id);
-        boolean fav = plugin.store.isFavorite(p.getUniqueId(), pt.id);
-        String info = "「" + pt.displayName() + "」\n"
-                + worldLabel(pt.world) + " " + pt.coords() + "\n"
-                + (pinned ? "当前：已置顶" : "当前：未置顶") + " · "
-                + (fav ? "已收藏" : "未收藏");
-        List<String> labels = new ArrayList<>();
-        List<Runnable> acts = new ArrayList<>();
-        labels.add("传送到这里"); acts.add(() -> plugin.teleporter.teleport(p, pt));
-        labels.add(fav ? "取消收藏" : "收藏"); acts.add(() -> {
-            boolean now = plugin.store.toggleFavorite(p, pt);
-            plugin.msg(p, now ? "已收藏「§b" + pt.displayName() + "§f」。" : "已取消收藏「§b" + pt.displayName() + "§f」。");
-            openPrefForm(p, f, 0, source);
-        });
-        labels.add(pinned ? "取消置顶" : "置顶"); acts.add(() -> {
-            boolean now = plugin.store.togglePin(p, pt);
-            plugin.msg(p, now ? "已置顶「§b" + pt.displayName() + "§f」。" : "已取消置顶「§b" + pt.displayName() + "§f」。");
-            openPrefForm(p, f, 0, source);
-        });
-        labels.add("上移"); acts.add(() -> {
-            if (plugin.store.move(p, pt, true)) plugin.msg(p, "「§b" + pt.displayName() + "§f」已上移。");
-            else plugin.msg(p, "「§b" + pt.displayName() + "§f」已经在本组的最上面了。");
-            openPrefForm(p, f, 0, source);
-        });
-        labels.add("下移"); acts.add(() -> {
-            if (plugin.store.move(p, pt, false)) plugin.msg(p, "「§b" + pt.displayName() + "§f」已下移。");
-            else plugin.msg(p, "「§b" + pt.displayName() + "§f」已经在本组的最下面了。");
-            openPrefForm(p, f, 0, source);
-        });
-        labels.add("返回列表"); acts.add(() -> openPrefForm(p, f, 0, source));
-        if (!plugin.bedrock.simple(p, "管理「" + pt.displayName() + "」", info, labels, idx -> {
-            if (idx >= 0 && idx < acts.size()) acts.get(idx).run();
-        })) {
-            plugin.msg(p, "§c无法打开基岩版表单。");
-        }
+        })) openMenu(p, null, 0, source);
     }
 
     // Java 箱子界面
@@ -214,7 +179,7 @@ final class Ui implements Listener {
 
     private void buildStaticButtons() {
         filler = button(Material.GRAY_STAINED_GLASS_PANE, " ", NamedTextColor.GRAY);
-        searchBtn = button(Material.OAK_SIGN, "搜索传送点", NamedTextColor.GREEN, "按名字 / 放置者 / 世界搜索", "点击后在聊天栏输入关键字");
+        searchBtn = button(Material.OAK_SIGN, "查找传送点", NamedTextColor.GREEN, "按名字搜索（也匹配放置者、世界）", "点击后在聊天栏输入关键字");
         clearBtn = button(Material.BARRIER, "清除搜索", NamedTextColor.RED);
         getBeaconBtn = button(Material.BEACON, "领取传送信标", NamedTextColor.AQUA, "数量不限，没有就补发");
         getCompassBtn = button(Material.COMPASS, "领取传送罗盘", NamedTextColor.GOLD, "数量不限，没有就补发");
@@ -243,7 +208,7 @@ final class Ui implements Listener {
         p.openInventory(inv);
     }
 
-    /** 原地刷新已打开的箱子菜单（收藏/置顶/排序后用），不重新创建、不重新打开界面。 */
+    /** 原地刷新已打开的箱子菜单（置顶切换后用），不重新创建、不重新打开界面。 */
     private void refreshChest(Player p, MenuHolder h) {
         if (h.source != null && plugin.store.byId.get(h.source.id) != h.source) h.source = null;
         List<Point> all = plugin.store.sortedFor(p.getUniqueId(), h.filter);
@@ -270,23 +235,19 @@ final class Ui implements Listener {
             ItemStack it = new ItemStack(icon(pt));
             ItemMeta m = it.getItemMeta();
             boolean pinned = prefs != null && prefs.pinned.contains(pt.id);
-            boolean fav = prefs != null && prefs.favorites.contains(pt.id);
-            String title = (pinned ? "★ " : "") + (fav && !pinned ? "❤ " : "") + pt.displayName();
-            m.displayName(l(title, pinned ? NamedTextColor.YELLOW : fav ? NamedTextColor.GOLD : NamedTextColor.AQUA)
+            String title = (pinned ? "★ " : "") + pt.displayName();
+            m.displayName(l(title, pinned ? NamedTextColor.YELLOW : NamedTextColor.AQUA)
                     .decoration(TextDecoration.BOLD, true));
-            if (pinned || fav) m.setEnchantmentGlintOverride(true);
+            if (pinned) m.setEnchantmentGlintOverride(true);
             List<Component> lore = new ArrayList<>();
             lore.add(l("世界：" + worldLabel(pt.world), NamedTextColor.GRAY));
             lore.add(l("坐标：" + pt.x + ", " + pt.y + ", " + pt.z, NamedTextColor.GRAY));
             lore.add(l("放置者：" + pt.ownerName, NamedTextColor.GRAY));
             if (pt.locked) lore.add(l("【已锁定】管理员锁定，无法被挖掉，也不能改名", NamedTextColor.RED));
             if (pinned) lore.add(l("已置顶（对你自己生效）", NamedTextColor.YELLOW));
-            if (fav) lore.add(l("已收藏（对你自己生效）", NamedTextColor.GOLD));
             lore.add(Component.empty());
             lore.add(l("左键：传送", NamedTextColor.GREEN));
-            lore.add(l("右键：" + (fav ? "取消收藏" : "收藏"), NamedTextColor.GOLD));
             lore.add(l("Shift+左键：" + (pinned ? "取消置顶" : "置顶"), NamedTextColor.YELLOW));
-            lore.add(l("Shift+右键：上移  ·  Q 键：下移", NamedTextColor.GRAY));
             m.lore(lore);
             it.setItemMeta(m);
             inv.setItem(slot, it);
@@ -334,21 +295,9 @@ final class Ui implements Listener {
         Runnable r = h.buttons.get(slot);
         if (pt != null) {
             ClickType click = e.getClick();
-            if (click == ClickType.RIGHT) {
-                boolean now = plugin.store.toggleFavorite(p, pt);
-                plugin.msg(p, now ? "已收藏「§b" + pt.displayName() + "§f」。" : "已取消收藏「§b" + pt.displayName() + "§f」。");
-                Bukkit.getScheduler().runTask(plugin, () -> reopenIfStillOpen(p, h));
-            } else if (click == ClickType.SHIFT_LEFT) {
+            if (click == ClickType.SHIFT_LEFT) {
                 boolean now = plugin.store.togglePin(p, pt);
                 plugin.msg(p, now ? "已置顶「§b" + pt.displayName() + "§f」。" : "已取消置顶「§b" + pt.displayName() + "§f」。");
-                Bukkit.getScheduler().runTask(plugin, () -> reopenIfStillOpen(p, h));
-            } else if (click == ClickType.SHIFT_RIGHT || click == ClickType.DROP || click == ClickType.CONTROL_DROP) {
-                boolean up = click == ClickType.SHIFT_RIGHT;
-                if (plugin.store.move(p, pt, up)) {
-                    plugin.msg(p, "「§b" + pt.displayName() + "§f」已" + (up ? "上移" : "下移") + "。");
-                } else {
-                    plugin.msg(p, "「§b" + pt.displayName() + "§f」已经在本组的最" + (up ? "上面" : "下面") + "了。");
-                }
                 Bukkit.getScheduler().runTask(plugin, () -> reopenIfStillOpen(p, h));
             } else {
                 Bukkit.getScheduler().runTask(plugin, () -> {

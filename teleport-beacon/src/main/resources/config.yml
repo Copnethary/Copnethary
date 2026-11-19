@@ -1,5 +1,3 @@
-# 传送冷却（秒），0 = 不限制
-cooldown-seconds: 3
 # 传送点名字最大长度
 max-name-length: 24
 # 聊天输入的超时时间（秒）

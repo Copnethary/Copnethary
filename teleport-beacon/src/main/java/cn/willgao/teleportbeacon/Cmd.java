@@ -23,7 +23,7 @@ final class Cmd implements CommandExecutor, TabCompleter {
                 if (!(s instanceof Player p)) { listText(s, null); return true; }
                 plugin.ui.openMenu(p, null, 0, null);
             }
-            case "search", "搜索" -> {
+            case "search", "搜索", "查找" -> {
                 String kw = String.join(" ", Arrays.copyOfRange(a, 1, a.length)).trim();
                 if (s instanceof Player p) {
                     if (kw.isEmpty()) plugin.ui.openMenu(p, null, 0, null);
@@ -53,19 +53,14 @@ final class Cmd implements CommandExecutor, TabCompleter {
                 try { id = Integer.parseInt(a[1]); } catch (NumberFormatException ex) { plugin.msg(s, "§c编号无效。"); return true; }
                 if (sub.equals("accept")) plugin.ui.accept(s, id); else plugin.ui.deny(s, id);
             }
-            case "fav", "favorite", "收藏" -> fav(s, a, null);
-            case "unfav", "unfavorite", "取消收藏" -> fav(s, a, false);
             case "pin", "置顶" -> pin(s, a, null);
             case "unpin", "取消置顶" -> pin(s, a, false);
-            case "moveup", "上移" -> move(s, a, true);
-            case "movedown", "下移" -> move(s, a, false);
             case "give" -> give(s, a);
             case "lock", "unlock", "锁定", "解锁" -> lock(s, a, sub.equals("lock") || sub.equals("锁定"));
             case "reload" -> {
                 if (!plugin.isAdmin(s)) { plugin.msg(s, "§c你没有权限。"); return true; }
                 plugin.store.flush();
                 plugin.reloadConfig();
-                plugin.teleporter.reloadSettings();
                 plugin.markers.reloadSettings();
                 plugin.store.load();
                 plugin.markers.removeAll();
@@ -73,21 +68,13 @@ final class Cmd implements CommandExecutor, TabCompleter {
                 plugin.msg(s, "已重载配置和数据，共 " + plugin.store.byId.size() + " 个传送点。");
             }
             default -> {
-                plugin.msg(s, "用法: /tb [search <关键字>|list|get|tp <名字>|requests|fav|pin|moveup|movedown]"
+                plugin.msg(s, "用法: /tb [search <关键字>|list|get|tp <名字>|requests|pin|unpin]"
                         + (plugin.isAdmin(s) ? " | give <玩家> <beacon|compass> [数量] | lock/unlock [名字] | reload" : ""));
             }
         }
         return true;
     }
 
-    private void fav(CommandSender s, String[] a, Boolean force) {
-        if (!(s instanceof Player p)) { plugin.msg(s, "只有玩家可以收藏传送点。"); return; }
-        if (a.length < 2) { showPrefs(p); return; }
-        Point pt = requirePoint(s, a);
-        if (pt == null) return;
-        boolean now = force == null ? plugin.store.toggleFavorite(p, pt) : plugin.store.setFavorite(p, pt, force);
-        plugin.msg(p, now ? "已收藏「§b" + pt.displayName() + "§f」。" : "已取消收藏「§b" + pt.displayName() + "§f」。");
-    }
 
     private void pin(CommandSender s, String[] a, Boolean force) {
         if (!(s instanceof Player p)) { plugin.msg(s, "只有玩家可以置顶传送点。"); return; }
@@ -103,35 +90,18 @@ final class Cmd implements CommandExecutor, TabCompleter {
         }
     }
 
-    private void move(CommandSender s, String[] a, boolean up) {
-        if (!(s instanceof Player p)) { plugin.msg(s, "只有玩家可以调整排序。"); return; }
-        if (a.length < 2) { plugin.msg(s, "用法: /tb " + (up ? "moveup" : "movedown") + " <传送点名字>"); return; }
-        Point pt = requirePoint(s, a);
-        if (pt == null) return;
-        if (plugin.store.move(p, pt, up)) {
-            plugin.msg(p, "「§b" + pt.displayName() + "§f」已" + (up ? "上移" : "下移") + "。");
-        } else {
-            plugin.msg(p, "「§b" + pt.displayName() + "§f」已经在本组的最" + (up ? "上面" : "下面") + "了（置顶、收藏、其他分组内各自排序）。");
-        }
-    }
 
     private void showPrefs(Player p) {
         UUID u = p.getUniqueId();
-        List<Point> all = plugin.store.sortedFor(u, null);
-        List<Point> pins = new ArrayList<>(), favs = new ArrayList<>();
-        for (Point pt : all) {
+        List<Point> pins = new ArrayList<>();
+        for (Point pt : plugin.store.sortedFor(u, null)) {
             if (plugin.store.isPinned(u, pt.id)) pins.add(pt);
-            else if (plugin.store.isFavorite(u, pt.id)) favs.add(pt);
         }
-        plugin.msg(p, "你的置顶 " + pins.size() + " 个、收藏 " + favs.size() + " 个。用法: /tb fav|pin|moveup|movedown <名字>");
+        plugin.msg(p, "你已置顶 " + pins.size() + " 个传送点。用法: /tb pin|unpin <名字>");
         if (!pins.isEmpty()) {
             p.sendMessage(TeleportBeaconPlugin.text("§e置顶：§f" + joinNames(pins)));
-        }
-        if (!favs.isEmpty()) {
-            p.sendMessage(TeleportBeaconPlugin.text("§6收藏：§f" + joinNames(favs)));
-        }
-        if (pins.isEmpty() && favs.isEmpty()) {
-            plugin.msg(p, "§7还没有置顶或收藏。在菜单里右键收藏，Shift+左键置顶。");
+        } else {
+            plugin.msg(p, "§7还没有置顶。在菜单里 Shift+左键即可置顶（只对自己生效）。");
         }
     }
 
@@ -168,19 +138,14 @@ final class Cmd implements CommandExecutor, TabCompleter {
 
     private void listText(CommandSender s, String kw) {
         UUID viewer = s instanceof Player p ? p.getUniqueId() : null;
-        List<Point> l = viewer == null
-                ? plugin.store.sorted(kw == null || kw.isBlank() ? null : kw.trim())
-                : plugin.store.sortedFor(viewer, kw == null || kw.isBlank() ? null : kw.trim());
+        String filter = kw == null || kw.isBlank() ? null : kw.trim();
+        List<Point> l = plugin.store.sortedFor(viewer, filter);
         plugin.msg(s, "共 " + l.size() + " 个传送点" + (kw != null ? "（关键字: " + kw + "）" : "") + "：");
         int n = 0;
         for (Point p : l) {
             if (n++ >= 50) { s.sendMessage(TeleportBeaconPlugin.text("§7… 还有 " + (l.size() - 50) + " 个，请用 /tb search 缩小范围")); break; }
             String tags = "";
-            if (viewer != null) {
-                if (plugin.store.isPinned(viewer, p.id)) tags += "§e[置顶]";
-                if (plugin.store.isFavorite(viewer, p.id)) tags += "§6[收藏]";
-                if (!tags.isEmpty()) tags += " ";
-            }
+            if (viewer != null && plugin.store.isPinned(viewer, p.id)) tags = "§e[置顶] ";
             s.sendMessage(TeleportBeaconPlugin.text(tags + "§b" + p.displayName() + (p.locked ? " §c[已锁定]" : "") + " §7| " + p.world + " " + p.coords() + " | " + p.ownerName));
         }
     }
@@ -211,7 +176,7 @@ final class Cmd implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender s, Command c, String label, String[] a) {
         List<String> out = new ArrayList<>();
         if (a.length == 1) {
-            out.addAll(List.of("search", "list", "get", "tp", "requests", "fav", "unfav", "pin", "unpin", "moveup", "movedown"));
+            out.addAll(List.of("search", "查找", "list", "get", "tp", "requests", "pin", "unpin"));
             if (plugin.isAdmin(s)) out.addAll(List.of("give", "reload", "lock", "unlock"));
         } else if (a.length >= 2 && isPointSub(a[0], s)) {
             String typed = String.join(" ", Arrays.copyOfRange(a, 1, a.length)).toLowerCase(Locale.ROOT);
@@ -235,10 +200,7 @@ final class Cmd implements CommandExecutor, TabCompleter {
 
     private boolean isPointSub(String sub, CommandSender s) {
         return switch (sub.toLowerCase(Locale.ROOT)) {
-            case "tp", "传送", "fav", "favorite", "收藏",
-                 "unfav", "unfavorite", "取消收藏",
-                 "pin", "置顶", "unpin", "取消置顶",
-                 "moveup", "上移", "movedown", "下移" -> true;
+            case "tp", "传送", "pin", "置顶", "unpin", "取消置顶" -> true;
             case "lock", "unlock", "锁定", "解锁" -> plugin.isAdmin(s);
             default -> false;
         };
