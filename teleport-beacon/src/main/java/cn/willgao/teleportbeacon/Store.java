@@ -335,12 +335,13 @@ final class Store {
 
     void removeRequest(int id) { if (requests.remove(id) != null) markDirty(); }
 
+    /** 待处理的申请（已锁定信标的申请先保留不显示，解锁后再递送）。 */
     List<Request> requestsFor(UUID owner) {
         if (requests.isEmpty()) return List.of();
         List<Request> out = new ArrayList<>();
         for (Request r : requests.values()) {
             Point p = byId.get(r.point);
-            if (p != null && owner.equals(p.owner)) out.add(r);
+            if (p != null && !p.locked && owner.equals(p.owner)) out.add(r);
         }
         return out;
     }

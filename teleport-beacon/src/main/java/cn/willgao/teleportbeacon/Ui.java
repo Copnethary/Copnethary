@@ -95,7 +95,8 @@ final class Ui implements Listener {
         labels.add("§l搜索传送点"); acts.add(() -> askSearch(p, source));
         if (f != null) { labels.add("清除搜索（显示全部）"); acts.add(() -> openMenu(p, null, 0, source)); }
         if (source != null) {
-            labels.add(canRenameDirect(p, source) ? "§l重命名本信标" : "§l申请重命名本信标");
+            labels.add(source.locked ? "§7重命名本信标（已锁定，解锁后才能改名）"
+                    : canRenameDirect(p, source) ? "§l重命名本信标" : "§l申请重命名本信标");
             acts.add(() -> startRename(p, source));
         }
         if (source != null && plugin.isAdmin(p)) {
@@ -278,7 +279,7 @@ final class Ui implements Listener {
             lore.add(l("世界：" + worldLabel(pt.world), NamedTextColor.GRAY));
             lore.add(l("坐标：" + pt.x + ", " + pt.y + ", " + pt.z, NamedTextColor.GRAY));
             lore.add(l("放置者：" + pt.ownerName, NamedTextColor.GRAY));
-            if (pt.locked) lore.add(l("【已锁定】管理员锁定，无法被挖掉", NamedTextColor.RED));
+            if (pt.locked) lore.add(l("【已锁定】管理员锁定，无法被挖掉，也不能改名", NamedTextColor.RED));
             if (pinned) lore.add(l("已置顶（对你自己生效）", NamedTextColor.YELLOW));
             if (fav) lore.add(l("已收藏（对你自己生效）", NamedTextColor.GOLD));
             lore.add(Component.empty());
@@ -298,8 +299,13 @@ final class Ui implements Listener {
         if (f != null) { inv.setItem(47, clearBtn); h.buttons.put(47, () -> openMenu(p, null, 0, source)); }
         if (source != null) {
             boolean direct = canRenameDirect(p, source);
-            inv.setItem(48, button(Material.NAME_TAG, direct ? "重命名本信标" : "申请重命名本信标", NamedTextColor.GOLD,
-                    "当前名字：" + source.displayName(), direct ? "点击后在聊天栏输入新名字" : "需要放置者(" + source.ownerName + ")同意"));
+            if (source.locked) {
+                inv.setItem(48, button(Material.BARRIER, "重命名本信标（已锁定）", NamedTextColor.RED,
+                        "当前名字：" + source.displayName(), "已被管理员锁定，任何人都不能改名", "解锁后才能改名"));
+            } else {
+                inv.setItem(48, button(Material.NAME_TAG, direct ? "重命名本信标" : "申请重命名本信标", NamedTextColor.GOLD,
+                        "当前名字：" + source.displayName(), direct ? "点击后在聊天栏输入新名字" : "需要放置者(" + source.ownerName + ")同意"));
+            }
             h.buttons.put(48, () -> startRename(p, source));
         }
         if (source != null && plugin.isAdmin(p)) {
@@ -414,7 +420,7 @@ final class Ui implements Listener {
 
     // ------------------------------------------------------------ 点击信标
     void onBeaconClick(Player p, Point pt) {
-        if (p.getUniqueId().equals(pt.owner) && pt.name() == null && !pt.prompted) {
+        if (!pt.locked && p.getUniqueId().equals(pt.owner) && pt.name() == null && !pt.prompted) {
             pt.prompted = true;
             plugin.store.markDirty();
             plugin.msg(p, "这是你刚放下的信标，先给它起个名字吧（以后再次右键即可打开传送菜单；发送 §c取消§f 则保留坐标名）。");
@@ -439,8 +445,8 @@ final class Ui implements Listener {
     private static String clean(String raw) { return WS.matcher(raw.replace("§", "")).replaceAll(" ").trim(); }
 
     void startRename(Player p, Point pt) {
-        if (pt.locked && !plugin.isAdmin(p)) {
-            plugin.msg(p, "§c这个信标已被管理员锁定，只有管理员可以改名。");
+        if (pt.locked) {
+            plugin.msg(p, "§c这个信标已被管理员锁定，任何人（包括管理员）都不能改名。请先解锁后再改名。");
             return;
         }
         boolean direct = canRenameDirect(p, pt);
@@ -450,6 +456,7 @@ final class Ui implements Listener {
         askText(p, title, hint, "新名字", pt.name() == null ? "" : pt.name(), text -> {
             Point cur = plugin.store.byId.get(pt.id);
             if (cur == null) { plugin.msg(p, "§c这个传送点已经不存在了。"); return; }
+            if (cur.locked) { plugin.msg(p, "§c这个信标已被管理员锁定，任何人（包括管理员）都不能改名。请先解锁后再改名。"); return; }
             if (text.isBlank()) { plugin.msg(p, "§7名字为空，已取消。"); return; }
             if (direct && text.equals("重置")) {
                 plugin.store.rename(cur, null); plugin.markers.refresh(cur);
@@ -487,8 +494,16 @@ final class Ui implements Listener {
         pt.locked = lock;
         plugin.store.markDirty();
         plugin.markers.refresh(pt);
+        if (!lock && pt.owner != null) { // 解锁后把锁定期间保留的改名申请递给在线的放置者
+            Player o = Bukkit.getPlayer(pt.owner);
+            if (o != null) {
+                for (Request r : plugin.store.requestsFor(pt.owner)) {
+                    if (r.point.equals(pt.id)) { deliverRequest(o, r); if (plugin.isBedrock(o)) break; }
+                }
+            }
+        }
         plugin.msg(actor, "已" + (lock ? "§c锁定" : "§a解锁") + "§f传送信标「§b" + pt.displayName() + "§f」"
-                + (lock ? "：任何人（包括管理员）都无法挖掉，怪物/爆炸/活塞也破坏不了；只有管理员可以改名。" : "：现在可以被挖掉了。"));
+                + (lock ? "：任何人（包括管理员）都无法挖掉，怪物/爆炸/活塞也破坏不了；也不能被任何人（包括管理员）改名，解锁后才能改名。" : "：现在可以被挖掉、改名了。"));
     }
 
     // ------------------------------------------------------------ 改名申请
@@ -554,11 +569,11 @@ final class Ui implements Listener {
         Point pt = r == null ? null : plugin.store.byId.get(r.point);
         if (r == null || pt == null) { plugin.msg(actor, "§c该申请已失效或已处理。"); if (r != null) plugin.store.removeRequest(id); return; }
         if (!checkActor(actor, pt)) { plugin.msg(actor, "§c只有该信标的放置者或管理员可以处理这条申请。"); return; }
-        plugin.store.removeRequest(id);
-        if (pt.locked && !plugin.isAdmin(actor)) {
-            plugin.msg(actor, "§c这个信标已被管理员锁定，只有管理员可以改名。");
+        if (pt.locked) { // 申请保留，解锁后还可以再同意
+            plugin.msg(actor, "§c这个信标已被管理员锁定，任何人（包括管理员）都不能改名。解锁后可再同意这条申请。");
             return;
         }
+        plugin.store.removeRequest(id);
         if (plugin.store.nameTaken(r.newName, pt)) {
             plugin.msg(actor, "§c名字「" + r.newName + "」已被占用，无法改名。");
             tell(r, "你对信标「" + pt.displayName() + "」的改名申请未能生效：名字「" + r.newName + "」已被占用。");
