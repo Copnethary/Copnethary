@@ -4,12 +4,12 @@ main: cn.willgao.teleportbeacon.TeleportBeaconPlugin
 api-version: '26.3'
 description: 传送信标 - 全服共享传送点
 author: Will
-softdepend: [floodgate]
+softdepend: [floodgate, BeaconGuard]
 commands:
   beacon:
     aliases: [tb, 传送信标]
     description: 打开传送信标菜单
-    usage: /<command> [search <关键字>|list|get|tp <名字>|requests|fav|pin|moveup|movedown|give|lock|unlock|reload]
+    usage: /<command> [search <关键字>|list|get|tp <名字>|manage|requests|fav|pin|moveup|movedown|give|lock|unlock|reload]
     permission: teleportbeacon.use
 permissions:
   teleportbeacon.use:

@@ -4,17 +4,17 @@ main: cn.willgao.beaconguard.BeaconGuardPlugin
 api-version: '26.3'
 description: 信标保护 - 放下信标即可保护周围区域，可与 TeleportBeacon 配合使用
 author: Will
-softdepend: [TeleportBeacon]
+softdepend: [floodgate]
 commands:
   guard:
     aliases: [bg, 保护, beaconguard]
     description: 信标保护区管理
-    usage: /<command> [protect [x y z] [世界]|remove [编号]|flag <开关> <allow|deny> [编号]|info [编号]|list [all]|flags|radius <半径> [编号]|reload]
+    usage: /<command> [menu [编号]|protect [x y z] [世界]|flag <设置> <on|off> [编号]|info [编号]|list|flags|remove [编号]|radius <半径> [编号]|reload]
     permission: beaconguard.use
 permissions:
   beaconguard.use:
-    description: 创建/删除自己的保护区、修改自己保护区的开关
+    description: 创建保护区、修改自己保护区的设置（方块保护类只能开启）
     default: true
   beaconguard.admin:
-    description: 管理员：可在任何保护区内破坏/建造，管理所有保护区，不受数量限制
+    description: 管理员：可在保护区内破坏/建造，撤销保护，修改所有保护区的任意设置，不受数量限制
     default: op

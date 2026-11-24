@@ -6,14 +6,13 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Player;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-final class Cmd implements TabExecutor, TabCompleter {
+final class Cmd implements TabExecutor {
     private final BeaconGuardPlugin plugin;
     private final RegionStore store;
 
@@ -25,8 +24,9 @@ final class Cmd implements TabExecutor, TabCompleter {
         String[] rest = Arrays.copyOfRange(a, Math.min(1, a.length), a.length);
         switch (sub) {
             case "protect", "保护", "create" -> protect(s, rest);
+            case "menu", "gui", "菜单", "设置" -> menu(s, rest);
             case "remove", "unprotect", "delete", "取消" -> remove(s, rest);
-            case "flag", "set", "设置" -> flag(s, rest);
+            case "flag", "set" -> flag(s, rest);
             case "info", "信息" -> info(s, rest);
             case "list", "列表" -> list(s, rest);
             case "flags" -> flags(s);
@@ -45,23 +45,18 @@ final class Cmd implements TabExecutor, TabCompleter {
 
     private void help(CommandSender s, String l) {
         plugin.msg(s, "§e信标保护 指令：");
+        s.sendMessage("§e/" + l + " menu [编号] §7— 打开保护设置菜单（可分别开关每一项）");
         s.sendMessage("§e/" + l + " protect §7— 保护你脚下这个位置（半径 " + plugin.radius() + " 格）");
         s.sendMessage("§e/" + l + " protect <x> <y> <z> [世界] §7— 保护指定坐标");
-        s.sendMessage("§e/" + l + " flag <开关> <allow|deny> [编号] §7— 开关规则，例如 §f/" + l + " flag pvp deny");
-        s.sendMessage("§e/" + l + " flags §7— 查看所有可用开关");
+        s.sendMessage("§e/" + l + " flag <设置> <on|off> [编号] §7— 例如 §f/" + l + " flag pvp on §7（禁止 PVP）");
+        s.sendMessage("§e/" + l + " flags §7— 查看所有设置名");
         s.sendMessage("§e/" + l + " info [编号] §7— 查看保护区（可点击开关）");
-        s.sendMessage("§e/" + l + " list [all] §7— 列出保护区");
-        s.sendMessage("§e/" + l + " remove [编号] §7— 取消保护");
-        if (plugin.isAdmin(s)) s.sendMessage("§c管理员：§e/" + l + " radius <半径> [编号]§7、§e/" + l + " tp <编号>§7、§e/" + l + " reload");
-        s.sendMessage("§7不写编号时，默认是你当前所在的保护区。");
+        s.sendMessage("§e/" + l + " list §7— 列出你的保护区");
+        if (plugin.isAdmin(s)) s.sendMessage("§c管理员：§e/" + l + " remove [编号]§7（取消保护）、§eradius <半径> [编号]§7、§etp <编号>§7、§elist all§7、§ereload");
+        s.sendMessage("§7不写编号时，默认是你当前所在的保护区。保护开启后只有管理员可以撤销。");
     }
 
     private void noPerm(CommandSender s) { plugin.msg(s, "§c你没有权限。"); }
-
-    private boolean canManage(CommandSender s, Region r) {
-        if (plugin.isAdmin(s)) return true;
-        return s instanceof Player p && p.getUniqueId().equals(r.owner);
-    }
 
     /** 解析编号；没写编号时用玩家当前位置所在的保护区。 */
     private Region resolve(CommandSender s, String[] a, int idx) {
@@ -82,9 +77,8 @@ final class Cmd implements TabExecutor, TabCompleter {
         return r;
     }
 
-    // ------------------------------------------------------------ protect
+    // ------------------------------------------------------------ protect / menu
     private void protect(CommandSender s, String[] a) {
-        if (!s.hasPermission("beaconguard.use")) { noPerm(s); return; }
         Player p = s instanceof Player pl ? pl : null;
         World w;
         int x, y, z;
@@ -102,42 +96,13 @@ final class Cmd implements TabExecutor, TabCompleter {
                 plugin.msg(s, "§c坐标格式不对，例如 §e/guard protect 100 64 -200§c（也支持 ~ 相对坐标）。");
                 return;
             }
-            if (a.length >= 4) w = Bukkit.getWorld(a[3]);
-            else w = p != null ? p.getWorld() : null;
+            w = a.length >= 4 ? Bukkit.getWorld(a[3]) : p != null ? p.getWorld() : null;
             if (w == null) { plugin.msg(s, "§c找不到世界" + (a.length >= 4 ? "「" + a[3] + "」" : "，请写上世界名") + "。"); return; }
         } else {
             plugin.msg(s, "§c用法：/guard protect 或 /guard protect <x> <y> <z> [世界]");
             return;
         }
-        if (y < w.getMinHeight() || y >= w.getMaxHeight()) { plugin.msg(s, "§cY 坐标超出世界高度范围。"); return; }
-
-        String wn = w.getName();
-        int radius = plugin.radius();
-        boolean admin = plugin.isAdmin(s);
-        UUID owner = p == null ? null : p.getUniqueId();
-
-        Region here = store.at(wn, x, y, z);
-        if (here != null && here.isCenter(wn, x, y, z)) {
-            plugin.msg(s, "§e这里已经是保护区 #" + here.id + " 了。"); return;
-        }
-        if (!admin) {
-            int max = plugin.getConfig().getInt("max-regions-per-player", 3);
-            if (max >= 0 && owner != null && store.ownedBy(owner).size() >= max) {
-                plugin.msg(s, "§c你最多只能创建 " + max + " 个保护区。可用 §e/guard remove <编号>§c 取消旧的。");
-                return;
-            }
-            if (!plugin.getConfig().getBoolean("allow-overlap", false)) {
-                Region o = store.overlapping(wn, x, z, radius, owner);
-                if (o != null) {
-                    plugin.msg(s, "§c这里离保护区 #" + o.id + "（" + o.ownerName + "，" + o.coords() + "）太近，保护范围会重叠。");
-                    return;
-                }
-            }
-        }
-        Region r = store.create(wn, x, y, z, radius, owner, p == null ? "服务器" : p.getName());
-        plugin.msg(s, "§a已保护此地标！§f保护区 §e#" + r.id + "§f，中心 " + r.coords() + "，半径 " + r.radius + " 格。");
-        s.sendMessage("§7范围内只有管理员可以破坏方块；爆炸、苦力怕、TNT、怪物、火烧都无法破坏建筑。");
-        sendFlagPanel(s, r);
+        plugin.protect(s, w, x, y, z);
     }
 
     private static int coord(String t, int base, boolean relOk) {
@@ -148,45 +113,73 @@ final class Cmd implements TabExecutor, TabCompleter {
         return (int) Math.floor(Double.parseDouble(t));
     }
 
-    // ------------------------------------------------------------ remove
+    /** /guard menu [编号] 或 /guard menu <世界> <x> <y> <z> */
+    private void menu(CommandSender s, String[] a) {
+        if (!(s instanceof Player p)) { plugin.msg(s, "§c只有玩家可以打开菜单。"); return; }
+        if (a.length >= 4) {
+            try {
+                plugin.menu.open(p, a[0], Integer.parseInt(a[1]), Integer.parseInt(a[2]), Integer.parseInt(a[3]), null, null);
+            } catch (NumberFormatException e) { plugin.msg(s, "§c用法：/guard menu <世界> <x> <y> <z>"); }
+            return;
+        }
+        if (a.length == 0) {
+            Region r = store.at(p.getLocation());
+            if (r != null) { plugin.menu.open(p, r, null); return; }
+            // 不在保护区内：打开脚下位置的菜单（可以直接点「保护此地标」）
+            Location l = p.getLocation();
+            plugin.menu.open(p, l.getWorld().getName(), l.getBlockX(), l.getBlockY(), l.getBlockZ(), "你脚下的位置", null);
+            return;
+        }
+        Region r = resolve(s, a, 0);
+        if (r != null) plugin.menu.open(p, r, null);
+    }
+
+    // ------------------------------------------------------------ remove（仅管理员）
     private void remove(CommandSender s, String[] a) {
+        if (!plugin.isAdmin(s)) { plugin.msg(s, "§c保护开启后只有管理员可以撤销。"); return; }
         Region r = resolve(s, a, 0);
         if (r == null) return;
-        if (!canManage(s, r)) { plugin.msg(s, "§c只有保护区主人或管理员可以取消保护区 #" + r.id + "。"); return; }
         store.remove(r);
         plugin.msg(s, "§e已取消保护区 #" + r.id + "（" + r.coords() + "）。");
+        if (r.owner != null && !(s instanceof Player p && p.getUniqueId().equals(r.owner))) {
+            Player o = Bukkit.getPlayer(r.owner);
+            if (o != null) plugin.msg(o, "§e你的保护区 #" + r.id + "（" + r.coords() + "）已被管理员取消。");
+        }
     }
 
     // ------------------------------------------------------------ flag
     private void flag(CommandSender s, String[] a) {
         if (a.length < 2) {
-            plugin.msg(s, "§c用法：/guard flag <开关> <allow|deny> [编号]  §7（/guard flags 查看所有开关）");
+            plugin.msg(s, "§c用法：/guard flag <设置> <on|off> [编号]  §7on = 开启（禁止），off = 关闭（允许）；/guard flags 查看所有设置");
             return;
         }
         Flag f = Flag.parse(a[0]);
-        if (f == null) { plugin.msg(s, "§c没有这个开关：" + a[0] + "。§7输入 /guard flags 查看。"); return; }
+        if (f == null) { plugin.msg(s, "§c没有这个设置：" + a[0] + "。§7输入 /guard flags 查看。"); return; }
         Boolean v = parseBool(a[1]);
-        if (v == null) { plugin.msg(s, "§c第二个参数请写 allow（允许）或 deny（禁止）。"); return; }
+        if (v == null) { plugin.msg(s, "§c第二个参数请写 on（开启/禁止）或 off（关闭/允许）。"); return; }
         Region r = resolve(s, a, 2);
         if (r == null) return;
-        if (!canManage(s, r)) { plugin.msg(s, "§c只有保护区主人或管理员可以修改保护区 #" + r.id + "。"); return; }
-        r.flags.put(f, v);
-        store.save();
-        plugin.msg(s, "保护区 §e#" + r.id + "§f：" + f.desc + " → " + (v ? "§a允许" : "§c禁止"));
+        String err = plugin.setFlag(s, r, f, v);
+        if (err != null) { plugin.msg(s, "§c" + err); return; }
+        plugin.msg(s, "保护区 §e#" + r.id + "§f：" + f.title + " → " + (v ? "§a已开启" : "§c已关闭"));
     }
 
     private static Boolean parseBool(String s) {
         return switch (s.toLowerCase(Locale.ROOT)) {
-            case "allow", "true", "on", "yes", "1", "允许", "开" -> true;
-            case "deny", "false", "off", "no", "0", "禁止", "关" -> false;
+            case "on", "deny", "true", "yes", "1", "禁止", "开", "开启" -> true;
+            case "off", "allow", "false", "no", "0", "允许", "关", "关闭" -> false;
             default -> null;
         };
     }
 
     private void flags(CommandSender s) {
-        plugin.msg(s, "§e可用开关：");
-        for (Flag f : Flag.values()) s.sendMessage("§e" + f.key + " §7— " + f.desc);
-        s.sendMessage("§7方块保护（防挖、防爆、防火烧）始终开启，不能关闭。");
+        plugin.msg(s, "§e所有设置（on = 开启/禁止，off = 关闭/允许）：");
+        s.sendMessage("§6方块保护：");
+        for (Flag f : Flag.values()) if (f.protection) s.sendMessage("  §e" + f.key + " §7— " + f.title);
+        s.sendMessage("§6区域规则：");
+        for (Flag f : Flag.values()) if (!f.protection) s.sendMessage("  §e" + f.key + " §7— " + f.title);
+        if (!plugin.getConfig().getBoolean("owner-can-relax-protection", false))
+            s.sendMessage("§7方块保护类开启后只有管理员可以关闭。");
     }
 
     // ------------------------------------------------------------ info / list
@@ -197,33 +190,31 @@ final class Cmd implements TabExecutor, TabCompleter {
         s.sendMessage("§7主人：§f" + r.ownerName + "  §7中心：§f" + r.coords() + "  §7半径：§f" + r.radius
                 + (store.circle ? "（圆形）" : "（正方形）"));
         s.sendMessage("§7创建时间：§f" + new SimpleDateFormat("yyyy-MM-dd HH:mm").format(new Date(r.created)));
-        sendFlagPanel(s, r);
-    }
-
-    /** 每个开关一行，主人/管理员可以直接点击切换。 */
-    private void sendFlagPanel(CommandSender s, Region r) {
-        boolean manage = canManage(s, r);
+        boolean manage = plugin.canManage(s, r);
+        String section = null;
         for (Flag f : Flag.values()) {
-            boolean v = r.allows(f);
-            Component line = BeaconGuardPlugin.legacy("§7 • " + f.desc + "：" + (v ? "§a允许" : "§c禁止") + "  ");
-            if (manage) {
-                String cmd = "/guard flag " + f.key + " " + (v ? "deny" : "allow") + " " + r.id;
-                line = line.append(BeaconGuardPlugin.button(v ? "§c[点击禁止]" : "§a[点击允许]", "§7" + cmd, cmd, true));
+            String sec = f.protection ? "§6方块保护：" : "§6区域规则：";
+            if (!sec.equals(section)) { s.sendMessage(sec); section = sec; }
+            boolean on = r.denies(f);
+            Component line = BeaconGuardPlugin.legacy("§7 • " + f.title + "：" + (on ? "§a已开启" : "§c已关闭") + "  ");
+            if (manage && (!on || plugin.canRelax(s, f))) {
+                String cmd = "/guard flag " + f.key + " " + (on ? "off" : "on") + " " + r.id;
+                line = line.append(BeaconGuardPlugin.button(on ? "§c[关闭]" : "§a[开启]", "§7" + cmd, cmd));
             }
             s.sendMessage(line);
         }
+        if (s instanceof Player) s.sendMessage(BeaconGuardPlugin.button("§b[打开设置菜单]", "§7/guard menu " + r.id, "/guard menu " + r.id));
     }
 
     private void list(CommandSender s, String[] a) {
-        boolean all = a.length > 0 && a[0].equalsIgnoreCase("all");
-        if (!(s instanceof Player)) all = true;
+        boolean all = (a.length > 0 && a[0].equalsIgnoreCase("all")) || !(s instanceof Player);
         if (all && !plugin.isAdmin(s)) { noPerm(s); return; }
         List<Region> l = all ? new ArrayList<>(store.all()) : store.ownedBy(((Player) s).getUniqueId());
         if (l.isEmpty()) { plugin.msg(s, "§7没有保护区。"); return; }
         plugin.msg(s, "§e保护区（" + l.size() + " 个）：");
         for (Region r : l) {
-            s.sendMessage(BeaconGuardPlugin.button("§e#" + r.id + " §f" + r.coords() + " §7半径 " + r.radius + " · " + r.ownerName,
-                    "§7点击查看详情", "/guard info " + r.id, true));
+            s.sendMessage(BeaconGuardPlugin.button("§e#" + r.id + " §f" + r.coords() + " §7半径 " + r.radius + " · " + r.ownerName
+                    + " · 开启 " + r.enabledCount() + " 项", "§7点击打开设置菜单", "/guard menu " + r.id));
         }
     }
 
@@ -253,8 +244,8 @@ final class Cmd implements TabExecutor, TabCompleter {
     }
 
     // ------------------------------------------------------------ tab
-    private static final List<String> SUBS = List.of("protect", "flag", "flags", "info", "list", "remove");
-    private static final List<String> ADMIN_SUBS = List.of("radius", "tp", "reload");
+    private static final List<String> SUBS = List.of("menu", "protect", "flag", "flags", "info", "list");
+    private static final List<String> ADMIN_SUBS = List.of("remove", "radius", "tp", "reload");
 
     @Override
     public List<String> onTabComplete(CommandSender s, Command c, String label, String[] a) {
@@ -263,11 +254,10 @@ final class Cmd implements TabExecutor, TabCompleter {
             out.addAll(SUBS);
             if (plugin.isAdmin(s)) out.addAll(ADMIN_SUBS);
         } else {
-            String sub = a[0].toLowerCase(Locale.ROOT);
-            switch (sub) {
+            switch (a[0].toLowerCase(Locale.ROOT)) {
                 case "flag" -> {
                     if (a.length == 2) for (Flag f : Flag.values()) out.add(f.key);
-                    else if (a.length == 3) out.addAll(List.of("allow", "deny"));
+                    else if (a.length == 3) out.addAll(List.of("on", "off"));
                     else if (a.length == 4) out.addAll(ids(s));
                 }
                 case "protect" -> {
@@ -278,7 +268,7 @@ final class Cmd implements TabExecutor, TabCompleter {
                         out.add("~");
                     } else if (a.length == 5) for (World w : Bukkit.getWorlds()) out.add(w.getName());
                 }
-                case "info", "remove", "tp" -> { if (a.length == 2) out.addAll(ids(s)); }
+                case "info", "menu", "remove", "tp" -> { if (a.length == 2) out.addAll(ids(s)); }
                 case "radius" -> { if (a.length == 2) out.add(String.valueOf(plugin.radius())); else if (a.length == 3) out.addAll(ids(s)); }
                 case "list" -> { if (a.length == 2 && plugin.isAdmin(s)) out.add("all"); }
                 default -> { }

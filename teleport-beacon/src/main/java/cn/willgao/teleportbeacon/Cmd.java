@@ -43,6 +43,10 @@ final class Cmd implements CommandExecutor, TabCompleter {
                 if (pt == null) { plugin.msg(s, "§c找不到名为「" + name + "」的传送点。试试 /tb search " + name); return true; }
                 plugin.teleporter.teleport(p, pt);
             }
+            case "manage", "管理" -> {
+                if (!(s instanceof Player p)) { plugin.msg(s, "只有玩家可以打开菜单。"); return true; }
+                plugin.ui.openManage(p, 0, null);
+            }
             case "requests", "申请" -> {
                 if (!(s instanceof Player p)) { plugin.msg(s, "只有玩家可以查看。"); return true; }
                 plugin.ui.showRequests(p);
@@ -73,7 +77,7 @@ final class Cmd implements CommandExecutor, TabCompleter {
                 plugin.msg(s, "已重载配置和数据，共 " + plugin.store.byId.size() + " 个传送点。");
             }
             default -> {
-                plugin.msg(s, "用法: /tb [search <关键字>|list|get|tp <名字>|requests|fav|pin|moveup|movedown]"
+                plugin.msg(s, "用法: /tb [search <关键字>|list|get|tp <名字>|manage|requests|fav|pin|moveup|movedown]"
                         + (plugin.isAdmin(s) ? " | give <玩家> <beacon|compass> [数量] | lock/unlock [名字] | reload" : ""));
             }
         }
@@ -211,7 +215,7 @@ final class Cmd implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender s, Command c, String label, String[] a) {
         List<String> out = new ArrayList<>();
         if (a.length == 1) {
-            out.addAll(List.of("search", "list", "get", "tp", "requests", "fav", "unfav", "pin", "unpin", "moveup", "movedown"));
+            out.addAll(List.of("search", "list", "get", "tp", "manage", "requests", "fav", "unfav", "pin", "unpin", "moveup", "movedown"));
             if (plugin.isAdmin(s)) out.addAll(List.of("give", "reload", "lock", "unlock"));
         } else if (a.length >= 2 && isPointSub(a[0], s)) {
             String typed = String.join(" ", Arrays.copyOfRange(a, 1, a.length)).toLowerCase(Locale.ROOT);

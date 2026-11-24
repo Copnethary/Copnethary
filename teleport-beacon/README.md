@@ -4,7 +4,7 @@ Paper 26.3 plugin. Build: `. ./env.sh && mvn -q package` -> target/TeleportBeaco
 Deploy: copy to plugins/, restart. Data: plugins/TeleportBeacon/data.yml, config.yml.
 Local test server (with fake-player self-test): /workspace/tools/testsrv + /workspace/tools/tbtest (adds `/tb selftest`).
 Classes: Store(data.yml, 含每人 prefs) Items(PDC items) Ui(chest menu, chat prompts, rename/requests) BedrockUi(Floodgate Cumulus forms)
-Teleporter(safe tp) Listeners(place/break/protect/interact/join) Cmd(/tb).
+Teleporter(safe tp) Listeners(place/break/protect/interact/join) Cmd(/tb) GuardHook(BeaconGuard 联动).
 
 ## 1.1.0 个人排序
 每位玩家可收藏、置顶、自定义顺序（只对自己生效，存在 data.yml 的 prefs.<uuid>）。
@@ -21,3 +21,9 @@ Java 菜单：左键传送，右键收藏，Shift+左键置顶，Shift+右键上
 - 传送：目标区块已加载则立即传送；未加载时用 Paper 紧急优先级异步加载；传送进行中忽略重复点击；少一个 tick 的回调延迟。
 - 名字索引 / 按世界索引：按名字查找、查重 O(1)；排序预计算键。
 - 锁定规则：被管理员锁定的信标，任何人（包括管理员）都不能改名，也不能同意改名申请；必须先解锁。锁定期间收到的申请会保留，解锁后自动递给在线的放置者。
+
+## 1.2.0 管理传送点（与 BeaconGuard 联动）
+- 传送菜单（右键信标 / 传送罗盘）新增「管理传送点」按钮（Java 在底栏第 51 格，基岩版在表单里），也可输入 `/tb manage`。
+- 列出自己放置的传送点（管理员看到全部）及其保护状态，点进去打开 BeaconGuard 的保护设置：禁止镐子破坏、禁止 TNT / 苦力怕爆炸、禁止怪物生成、禁止 PVP 等可分别开关；未保护的可以直接点「保护此地标」。
+- 「领取传送信标」和「领取传送罗盘」合并为一个按钮（原本两个按钮功能相同）。
+- 没装 BeaconGuard 时按钮不显示，其它功能不受影响（通过反射调用，无编译依赖）。

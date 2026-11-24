@@ -12,14 +12,21 @@ final class Region {
     final UUID owner;       // null = 控制台/服务器创建
     final String ownerName;
     final long created;
-    final Map<Flag, Boolean> flags = new EnumMap<>(Flag.class);
+    /** true = 禁止（这项保护开启）。 */
+    final Map<Flag, Boolean> deny = new EnumMap<>(Flag.class);
 
     Region(int id, String world, int x, int y, int z, int radius, UUID owner, String ownerName, long created) {
         this.id = id; this.world = world; this.x = x; this.y = y; this.z = z;
         this.radius = radius; this.owner = owner; this.ownerName = ownerName; this.created = created;
     }
 
-    boolean allows(Flag f) { return flags.getOrDefault(f, true); }
+    boolean denies(Flag f) { return deny.getOrDefault(f, f.protection); }
+
+    int enabledCount() {
+        int n = 0;
+        for (Flag f : Flag.values()) if (denies(f)) n++;
+        return n;
+    }
 
     /** circle=true 圆形，否则正方形；halfHeight<0 表示整列。 */
     boolean contains(int bx, int by, int bz, boolean circle, int halfHeight) {

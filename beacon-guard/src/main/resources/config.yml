@@ -8,22 +8,34 @@ height: full
 
 # 放下信标时，是否在聊天栏弹出「是否保护此地标？[保护] [忽略]」
 prompt-on-beacon-place: true
-# 保护区的中心信标被（管理员）挖掉后，是否自动取消这个保护区
+# 保护区的中心信标被管理员挖掉后，是否自动取消这个保护区
 remove-when-beacon-broken: true
 # 普通玩家最多能创建几个保护区（管理员不限），-1 = 不限
 max-regions-per-player: 3
 # 普通玩家的保护区之间是否允许重叠（管理员不受限制）
 allow-overlap: false
+# 保护区主人能否关闭「方块保护」类设置。false = 开启后只有管理员能关闭（撤销保护只能由管理员进行）
+# 「区域规则」类（pvp、火焰蔓延、怪物生成等）主人始终可以自由开关
+owner-can-relax-protection: false
 
-# 新建保护区时各开关的默认值（true = 允许，false = 禁止）
-# 之后可用 /guard flag <开关> <allow|deny> 修改
-default-flags:
-  pvp: true          # 玩家之间互相攻击
-  fire-spread: true  # 火焰蔓延 / 被点燃（无论如何火都烧不掉方块）
-  mob-spawn: true    # 怪物自然生成
-  mob-damage: true   # 怪物伤害玩家
-  place: true        # 普通玩家放置方块 / 倒水倒岩浆
-  interact: true     # 普通玩家打开箱子、熔炉、门、按钮等
+# 新建保护区时每一项的默认值：true = 开启（禁止），false = 关闭（允许）
+defaults:
+  # ---- 方块保护 ----
+  break: true        # 禁止玩家破坏方块（镐子/斧子/徒手、装桶、去皮、踩耕地、改告示牌）
+  creeper: true      # 禁止苦力怕爆炸破坏
+  tnt: true          # 禁止 TNT / TNT 矿车爆炸破坏
+  explosion: true    # 禁止其它爆炸破坏（恶魂火球、凋灵骷髅、末影水晶、床、重生锚…）
+  mob-grief: true    # 禁止怪物破坏方块（末影人、劫掠兽、凋灵、末影龙、破门僵尸…）
+  fire-burn: true    # 禁止火烧毁方块
+  decoration: true   # 保护画/展示框/盔甲架
+  outside: true      # 禁止区外的活塞/液体/发射器影响区内
+  # ---- 区域规则 ----
+  pvp: false         # 禁止玩家互相攻击
+  fire-spread: false # 禁止火焰蔓延/点火
+  mob-spawn: false   # 禁止怪物自然生成
+  mob-damage: false  # 禁止怪物伤害玩家
+  place: false       # 禁止普通玩家放置方块
+  interact: false    # 禁止普通玩家使用箱子/门/按钮等
 
-# 被拦截时是否给玩家提示（冷却秒数，避免刷屏）
+# 被拦截时给玩家提示的冷却（秒），避免刷屏
 deny-message-cooldown-seconds: 2

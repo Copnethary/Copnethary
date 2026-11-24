@@ -105,6 +105,7 @@ final class Ui implements Listener {
         }
         labels.add("领取传送信标 / 罗盘"); acts.add(() -> plugin.ensureItems(p, true));
         labels.add("管理收藏 / 置顶 / 排序"); acts.add(() -> openPrefForm(p, f, 0, source));
+        if (plugin.guard.available()) { labels.add("§l管理传送点（保护设置）"); acts.add(() -> openManage(p, 0, source)); }
         if (pg > 0) { labels.add("« 上一页"); acts.add(() -> openMenu(p, f, pg - 1, source)); }
         int from = pg * PAGE_FORM, to = Math.min(all.size(), from + PAGE_FORM);
         for (int i = from; i < to; i++) {
@@ -204,20 +205,23 @@ final class Ui implements Listener {
     static final class MenuHolder implements InventoryHolder {
         Inventory inv;
         String filter; int page, pages; Point source;
+        boolean manage; // 「管理传送点」列表：点击传送点进入保护设置
         final Map<Integer, Point> slots = new HashMap<>();
         final Map<Integer, Runnable> buttons = new HashMap<>();
         @Override public Inventory getInventory() { return inv; }
     }
 
     // 固定按钮只创建一次（setItem 会复制，复用是安全的）
-    private ItemStack filler, searchBtn, clearBtn, getBeaconBtn, getCompassBtn, prevBtn, nextBtn;
+    private ItemStack filler, searchBtn, clearBtn, getItemsBtn, manageBtn, backBtn, prevBtn, nextBtn;
 
     private void buildStaticButtons() {
         filler = button(Material.GRAY_STAINED_GLASS_PANE, " ", NamedTextColor.GRAY);
         searchBtn = button(Material.OAK_SIGN, "搜索传送点", NamedTextColor.GREEN, "按名字 / 放置者 / 世界搜索", "点击后在聊天栏输入关键字");
         clearBtn = button(Material.BARRIER, "清除搜索", NamedTextColor.RED);
-        getBeaconBtn = button(Material.BEACON, "领取传送信标", NamedTextColor.AQUA, "数量不限，没有就补发");
-        getCompassBtn = button(Material.COMPASS, "领取传送罗盘", NamedTextColor.GOLD, "数量不限，没有就补发");
+        getItemsBtn = button(Material.BEACON, "领取传送信标 / 罗盘", NamedTextColor.AQUA, "数量不限，没有就补发");
+        manageBtn = button(Material.SHIELD, "管理传送点", NamedTextColor.GREEN, "设置每个传送点的保护：",
+                "禁止镐子破坏、禁止 TNT/苦力怕爆炸、", "禁止怪物生成、禁止 PVP、禁止火焰蔓延等");
+        backBtn = button(Material.COMPASS, "返回传送菜单", NamedTextColor.YELLOW);
         prevBtn = button(Material.ARROW, "« 上一页", NamedTextColor.YELLOW);
         nextBtn = button(Material.ARROW, "下一页 »", NamedTextColor.YELLOW);
     }
@@ -316,11 +320,89 @@ final class Ui implements Listener {
             h.buttons.put(52, () -> setLocked(p, source, !source.locked));
         }
         inv.setItem(49, button(Material.PAPER, "第 " + (pg + 1) + "/" + pages + " 页 · 共 " + all.size() + " 个", NamedTextColor.WHITE));
-        inv.setItem(50, getBeaconBtn);
+        inv.setItem(50, getItemsBtn);
         h.buttons.put(50, () -> plugin.ensureItems(p, true));
-        inv.setItem(51, getCompassBtn);
-        h.buttons.put(51, () -> plugin.ensureItems(p, true));
+        if (plugin.guard.available()) {
+            inv.setItem(51, manageBtn);
+            h.buttons.put(51, () -> openManage(p, 0, source));
+        }
         if (pg < pages - 1) { inv.setItem(53, nextBtn); h.buttons.put(53, () -> openMenu(p, f, pg + 1, source)); }
+    }
+
+    // ------------------------------------------------------------ 管理传送点（与 BeaconGuard 联动）
+    /** 可管理的传送点：自己放置的；管理员可以管理全部。当前信标排在最前面。 */
+    private List<Point> manageable(Player p, Point source) {
+        List<Point> all = new ArrayList<>(plugin.store.sortedFor(p.getUniqueId(), null));
+        if (!plugin.isAdmin(p)) all.removeIf(pt -> !p.getUniqueId().equals(pt.owner));
+        if (source != null && all.remove(source)) all.add(0, source);
+        return all;
+    }
+
+    void openManage(Player p, int page, Point source) {
+        if (!plugin.guard.available()) { plugin.msg(p, "§c服务器没有安装信标保护插件（BeaconGuard）。"); return; }
+        if (source != null && plugin.store.byId.get(source.id) != source) source = null;
+        List<Point> all = manageable(p, source);
+        if (all.isEmpty()) {
+            plugin.msg(p, "你还没有放置过传送信标，没有可以管理的传送点。");
+            return;
+        }
+        if (plugin.isBedrock(p) && openManageForm(p, page, source, all)) return;
+        int pages = Math.max(1, (all.size() + PAGE_CHEST - 1) / PAGE_CHEST);
+        int pg = Math.min(Math.max(0, page), pages - 1);
+        MenuHolder h = new MenuHolder();
+        h.manage = true; h.page = pg; h.pages = pages; h.source = source;
+        Inventory inv = Bukkit.createInventory(h, 54, Component.text("管理传送点 " + (pg + 1) + "/" + pages));
+        h.inv = inv;
+        int from = pg * PAGE_CHEST, to = Math.min(all.size(), from + PAGE_CHEST);
+        for (int i = from; i < to; i++) {
+            Point pt = all.get(i);
+            ItemStack it = new ItemStack(icon(pt));
+            ItemMeta m = it.getItemMeta();
+            m.displayName(l(pt.displayName(), NamedTextColor.AQUA).decoration(TextDecoration.BOLD, true));
+            List<Component> lore = new ArrayList<>();
+            lore.add(l("世界：" + worldLabel(pt.world), NamedTextColor.GRAY));
+            lore.add(l("坐标：" + pt.x + ", " + pt.y + ", " + pt.z, NamedTextColor.GRAY));
+            lore.add(l("放置者：" + pt.ownerName, NamedTextColor.GRAY));
+            String st = plugin.guard.status(pt);
+            if (!st.isEmpty()) lore.add(TeleportBeaconPlugin.text("§7保护：" + st).decoration(TextDecoration.ITALIC, false));
+            if (pt == source) lore.add(l("（当前信标）", NamedTextColor.YELLOW));
+            lore.add(Component.empty());
+            lore.add(l("点击：打开保护设置", NamedTextColor.GREEN));
+            m.lore(lore);
+            if (st.startsWith("§a")) m.setEnchantmentGlintOverride(true);
+            it.setItemMeta(m);
+            inv.setItem(i - from, it);
+            h.slots.put(i - from, pt);
+        }
+        for (int s = 45; s < 54; s++) inv.setItem(s, filler);
+        Point src = source;
+        if (pg > 0) { inv.setItem(45, prevBtn); h.buttons.put(45, () -> openManage(p, pg - 1, src)); }
+        inv.setItem(49, backBtn);
+        h.buttons.put(49, () -> openMenu(p, null, 0, src));
+        if (pg < pages - 1) { inv.setItem(53, nextBtn); h.buttons.put(53, () -> openManage(p, pg + 1, src)); }
+        p.openInventory(inv);
+    }
+
+    private boolean openManageForm(Player p, int page, Point source, List<Point> all) {
+        int pages = Math.max(1, (all.size() + PAGE_FORM - 1) / PAGE_FORM);
+        int pg = Math.min(Math.max(0, page), pages - 1);
+        List<String> labels = new ArrayList<>();
+        List<Runnable> acts = new ArrayList<>();
+        labels.add("返回传送菜单"); acts.add(() -> openMenu(p, null, 0, source));
+        if (pg > 0) { labels.add("« 上一页"); acts.add(() -> openManage(p, pg - 1, source)); }
+        int from = pg * PAGE_FORM, to = Math.min(all.size(), from + PAGE_FORM);
+        for (int i = from; i < to; i++) {
+            Point pt = all.get(i);
+            String st = plugin.guard.status(pt);
+            labels.add("§l" + pt.displayName() + "§r\n" + (st.isEmpty() ? "§8" + pt.coords() : st));
+            acts.add(() -> plugin.guard.open(p, pt, () -> openManage(p, pg, source)));
+        }
+        if (pg < pages - 1) { labels.add("下一页 »"); acts.add(() -> openManage(p, pg + 1, source)); }
+        String content = "选择一个传送点，设置它的保护：禁止镐子破坏、禁止 TNT/苦力怕爆炸、禁止怪物生成、禁止 PVP 等。\n第 "
+                + (pg + 1) + "/" + pages + " 页，共 " + all.size() + " 个。";
+        return plugin.bedrock.simple(p, "管理传送点", content, labels, idx -> {
+            if (idx >= 0 && idx < acts.size()) acts.get(idx).run();
+        });
     }
 
     @EventHandler
@@ -332,7 +414,13 @@ final class Ui implements Listener {
         int slot = e.getRawSlot();
         Point pt = h.slots.get(slot);
         Runnable r = h.buttons.get(slot);
-        if (pt != null) {
+        if (pt != null && h.manage) {
+            int page = h.page; Point source = h.source;
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                p.closeInventory();
+                plugin.guard.open(p, pt, () -> openManage(p, page, source));
+            });
+        } else if (pt != null) {
             ClickType click = e.getClick();
             if (click == ClickType.RIGHT) {
                 boolean now = plugin.store.toggleFavorite(p, pt);

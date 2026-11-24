@@ -20,6 +20,7 @@ public final class TeleportBeaconPlugin extends JavaPlugin {
     Teleporter teleporter;
     Markers markers;
     BedrockUi bedrock; // 没装 floodgate 时为 null
+    GuardHook guard;
 
     static Component text(String legacy) { return LEGACY.deserialize(legacy); }
 
@@ -49,6 +50,7 @@ public final class TeleportBeaconPlugin extends JavaPlugin {
         } else {
             getLogger().info("未检测到 Floodgate，全部玩家使用箱子界面。");
         }
+        guard = new GuardHook(this);
         teleporter = new Teleporter(this);
         ui = new Ui(this);
         getServer().getPluginManager().registerEvents(new Listeners(this), this);

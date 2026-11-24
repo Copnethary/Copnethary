@@ -47,14 +47,21 @@ final class RegionStore {
 
     boolean isProtected(Block b) { return at(b) != null; }
 
-    /** 该位置所有覆盖它的保护区都允许此开关时返回 true（不在保护区内也返回 true）。 */
-    boolean allows(Location loc, Flag f) {
-        List<Region> l = byWorld.get(loc.getWorld().getName());
-        if (l == null) return true;
-        int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
-        for (Region r : l) if (!r.allows(f) && r.contains(x, y, z, circle, halfHeight)) return false;
-        return true;
+    /** 覆盖该方块、且禁止了此项的保护区；没有则返回 null。 */
+    Region denying(String world, int x, int y, int z, Flag f) {
+        List<Region> l = byWorld.get(world);
+        if (l == null) return null;
+        for (Region r : l) if (r.denies(f) && r.contains(x, y, z, circle, halfHeight)) return r;
+        return null;
     }
+
+    Region denying(Block b, Flag f) { return denying(b.getWorld().getName(), b.getX(), b.getY(), b.getZ(), f); }
+
+    Region denying(Location l, Flag f) { return denying(l.getWorld().getName(), l.getBlockX(), l.getBlockY(), l.getBlockZ(), f); }
+
+    boolean denies(Block b, Flag f) { return denying(b, f) != null; }
+
+    boolean denies(Location l, Flag f) { return denying(l, f) != null; }
 
     Region get(int id) { return byId.get(id); }
 
@@ -66,12 +73,14 @@ final class RegionStore {
         return out;
     }
 
-    Region centeredAt(Block b) {
-        List<Region> l = byWorld.get(b.getWorld().getName());
+    Region centeredAt(String world, int x, int y, int z) {
+        List<Region> l = byWorld.get(world);
         if (l == null) return null;
-        for (Region r : l) if (r.isCenter(b.getWorld().getName(), b.getX(), b.getY(), b.getZ())) return r;
+        for (Region r : l) if (r.isCenter(world, x, y, z)) return r;
         return null;
     }
+
+    Region centeredAt(Block b) { return centeredAt(b.getWorld().getName(), b.getX(), b.getY(), b.getZ()); }
 
     /** 返回与给定范围重叠、且主人不是 who 的第一个保护区。 */
     Region overlapping(String world, int x, int z, int radius, UUID who) {
@@ -84,8 +93,8 @@ final class RegionStore {
     // ------------------------------------------------------------ 修改
     Region create(String world, int x, int y, int z, int radius, UUID owner, String ownerName) {
         Region r = new Region(nextId++, world, x, y, z, radius, owner, ownerName, System.currentTimeMillis());
-        ConfigurationSection def = plugin.getConfig().getConfigurationSection("default-flags");
-        for (Flag f : Flag.values()) r.flags.put(f, def == null || def.getBoolean(f.key, true));
+        ConfigurationSection def = plugin.getConfig().getConfigurationSection("defaults");
+        for (Flag f : Flag.values()) r.deny.put(f, def == null ? f.protection : def.getBoolean(f.key, f.protection));
         index(r);
         save();
         return r;
@@ -120,8 +129,14 @@ final class RegionStore {
                 Region r = new Region(id, s.getString("world"), s.getInt("x"), s.getInt("y"), s.getInt("z"),
                         s.getInt("radius", 50), ow == null || ow.isEmpty() ? null : UUID.fromString(ow),
                         s.getString("owner-name", "服务器"), s.getLong("created"));
-                ConfigurationSection fs = s.getConfigurationSection("flags");
-                for (Flag f : Flag.values()) r.flags.put(f, fs == null || fs.getBoolean(f.key, true));
+                ConfigurationSection ds = s.getConfigurationSection("deny");
+                ConfigurationSection old = s.getConfigurationSection("flags"); // 1.0.0 旧格式：true = 允许
+                for (Flag f : Flag.values()) {
+                    boolean v = f.protection;
+                    if (ds != null && ds.contains(f.key)) v = ds.getBoolean(f.key);
+                    else if (old != null && old.contains(f.key)) v = !old.getBoolean(f.key);
+                    r.deny.put(f, v);
+                }
                 index(r);
                 nextId = Math.max(nextId, id + 1);
             } catch (RuntimeException ex) {
@@ -141,7 +156,7 @@ final class RegionStore {
             y.set(p + "owner", r.owner == null ? "" : r.owner.toString());
             y.set(p + "owner-name", r.ownerName);
             y.set(p + "created", r.created);
-            for (Flag f : Flag.values()) y.set(p + "flags." + f.key, r.allows(f));
+            for (Flag f : Flag.values()) y.set(p + "deny." + f.key, r.denies(f));
         }
         try {
             plugin.getDataFolder().mkdirs();
