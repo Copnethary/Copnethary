@@ -1,0 +1,20 @@
+name: BeaconGuard
+version: '${project.version}'
+main: cn.willgao.beaconguard.BeaconGuardPlugin
+api-version: '26.3'
+description: 信标保护 - 放下信标即可保护周围区域，可与 TeleportBeacon 配合使用
+author: Will
+softdepend: [TeleportBeacon]
+commands:
+  guard:
+    aliases: [bg, 保护, beaconguard]
+    description: 信标保护区管理
+    usage: /<command> [protect [x y z] [世界]|remove [编号]|flag <开关> <allow|deny> [编号]|info [编号]|list [all]|flags|radius <半径> [编号]|reload]
+    permission: beaconguard.use
+permissions:
+  beaconguard.use:
+    description: 创建/删除自己的保护区、修改自己保护区的开关
+    default: true
+  beaconguard.admin:
+    description: 管理员：可在任何保护区内破坏/建造，管理所有保护区，不受数量限制
+    default: op

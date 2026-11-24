@@ -1,0 +1,29 @@
+# 保护半径（格）。以信标为中心，向东西南北各延伸这么多格。
+radius: 50
+# 形状：square = 正方形（x、z 方向都在半径内）；circle = 圆形（水平距离在半径内）
+shape: square
+# 保护高度：full = 从世界最底到最顶整列都保护（防止从地下挖进来）；
+# 也可以填一个数字，表示只保护信标上下各多少格
+height: full
+
+# 放下信标时，是否在聊天栏弹出「是否保护此地标？[保护] [忽略]」
+prompt-on-beacon-place: true
+# 保护区的中心信标被（管理员）挖掉后，是否自动取消这个保护区
+remove-when-beacon-broken: true
+# 普通玩家最多能创建几个保护区（管理员不限），-1 = 不限
+max-regions-per-player: 3
+# 普通玩家的保护区之间是否允许重叠（管理员不受限制）
+allow-overlap: false
+
+# 新建保护区时各开关的默认值（true = 允许，false = 禁止）
+# 之后可用 /guard flag <开关> <allow|deny> 修改
+default-flags:
+  pvp: true          # 玩家之间互相攻击
+  fire-spread: true  # 火焰蔓延 / 被点燃（无论如何火都烧不掉方块）
+  mob-spawn: true    # 怪物自然生成
+  mob-damage: true   # 怪物伤害玩家
+  place: true        # 普通玩家放置方块 / 倒水倒岩浆
+  interact: true     # 普通玩家打开箱子、熔炉、门、按钮等
+
+# 被拦截时是否给玩家提示（冷却秒数，避免刷屏）
+deny-message-cooldown-seconds: 2
